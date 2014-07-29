@@ -19,7 +19,10 @@ before_install:
 install:
   # CMake 2.8.12
   - wget http://www.cmake.org/files/v2.8/cmake-2.8.12.2-Linux-i386.tar.gz -O /tmp/cmake.tar.gz && tar -C /tmp -xvf /tmp/cmake.tar.gz && rm /tmp/cmake.tar.gz 
-  - cd /tmp/cmake-2.8.12.2-Linux-i386 && sudo cp * /usr/ -r && cd - && rm -r /tmp/cmake-2.8.12.2-Linux-i386
+  - cd /tmp/cmake-2.8.12.2-Linux-i386 && ls && ls * && sudo cp * /usr/ -r && cd - #&& rm -r /tmp/cmake-2.8.12.2-Linux-i386
+  - if [ $(find /usr/bin -name cmake) ]; then rm /usr/bin/cmake; fi
+  - sudo ln -s /tmp/cmake-2.8.12.2-Linux-i386/bin/cmake /usr/bin/cmake 
+  - cmake
     #
   - wget https://google-glog.googlecode.com/files/glog-0.3.3.tar.gz -O /tmp/glog-0.3.3.tar.gz && tar -C /tmp -xzvf /tmp/glog-0.3.3.tar.gz && rm /tmp/glog-0.3.3.tar.gz
   - cd /tmp/glog-0.3.3 && ./configure && make -j4 && sudo make install -j4 && cd -
