@@ -721,8 +721,14 @@ message WindowDataParameter {
 }
 
 message SegmentationParameter {
-	optional float learning_rate = 1 [default = 0.1];
-	optional float gradient_norm_tolerance = 2 [default = 1e-4];
+	optional float step_size = 1;
+	optional float data_weight = 2;
+	optional float log_barrier_weight = 3;
+	optional float gradient_norm_tolerance = 4;
+	optional float smoothnes_eps = 5;
+	optional float minimization_iters = 6;
+	optional float inv_hess_iters = 7;
+	optional float inv_hess_tolerance = 8;
 }
 
 // DEPRECATED: use LayerParameter.

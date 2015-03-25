@@ -478,18 +478,41 @@ class SegmentationLayer : public Layer<Dtype> {
 //  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
 //      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
 
-	void minimize_cpu(Dtype* indicatorValue, Dtype* indicatorGrad,
-			const Dtype* unit, const Dtype* horizontal, const Dtype* vertical);
-	void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad,
-			const Dtype* unit, const Dtype* horizontal, const Dtype* vertical);
+	void minimize_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
+	void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
+
+	void forwardDiffDx_cpu(const Dtype* f, Dtype* dx);
+	void forwardDiffDy_cpu(const Dtype* f, Dtype* dy);
+	void gradInterim_cpu(const Dtype* grad, const Dtype* potential, Dtype* interim);
+	void gradDiffDx_cpu(const Dtype* grad, Dtype* diffDx);
+	void gradDiffDy_cpu(const Dtype* grad, Dtype* diffDy);
+
+	void hessianVector_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv);
+	void invHessianVector_cpu(const Dtype* indicator, const Dtype* vec, Dtype* iHv);
+
 
   int N_;
   int num_;
   int height_;
   int width_;
-  Dtype learningRate_;
+
+  Dtype stepSize_;
+  Dtype dataWeight_;
+  Dtype logBarrierWeight_;
   Dtype gradientTolerance_;
-  Blob<Dtype> indicatorGradient_;
+  Dtype smoothnesEps_;
+  int minimizationIters_;
+  int invHessIters_;
+  Dtype invHessTolerance_;
+
+  Blob<Dtype> bufferEnergyGrad_;
+  Blob<Dtype> bufferResidualDirection_;
+  Blob<Dtype> bufferMatVecStorage_;
+  Blob<Dtype> bufferHessVec_;
+
+	const Dtype* unit_;
+	const Dtype* horizontal_;
+	const Dtype* vertical_;
 
 };
 
