@@ -537,6 +537,7 @@ class SegmentationLayer : public Layer<Dtype> {
 //  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
 //      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
 
+  Dtype energy_cpu(const Dtype* indicatorValue);
   void minimize_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
   void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
   void timesHorizontalB_cpu(const Dtype* f, Dtype* dx);

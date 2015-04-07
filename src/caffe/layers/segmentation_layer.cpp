@@ -11,6 +11,14 @@
 namespace caffe {
 
 template<typename Dtype>
+void printVec(const Dtype* v) {
+  for(int i = 0; i < 9; ++i) {
+    std::cout << v[i] << " ";
+  }
+  std::cout << std::endl;
+}
+
+template<typename Dtype>
 void SegmentationLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
                                           const vector<Blob<Dtype>*>& top) {
 
@@ -52,13 +60,16 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
                                            const vector<Blob<Dtype>*>& top) {
 
   size_t offset = N_;
-  top[0]->CopyFrom(*bottom[0]);
+//  top[0]->CopyFrom(*bottom[0]);
   Dtype* indicatorValue = top[0]->mutable_cpu_data();
   Dtype* indicatorGrad = top[0]->mutable_cpu_diff();
 
   unit_ = bottom[0]->cpu_data();
   horizontal_ = bottom[1]->cpu_data();
   vertical_ = bottom[2]->cpu_data();
+
+  //initialize segmentation
+  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicatorValue);
 
   for (int i = 0; i < num_; ++i) {
     LOG(INFO) << "Forwarding " << i << "/" << num_;
@@ -100,6 +111,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     //uniatary
     //H^-1 * lossGrad
     invHessianVector_cpu(indicatorValue, indicatorGrad, unitGrad);
+    printVec(unitGrad);
 
     //horizontal
     timesHorizontalB_cpu(indicatorValue, bu);
@@ -141,6 +153,34 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   vertical_ = nullptr;
 }
 
+
+template<typename Dtype>
+Dtype SegmentationLayer<Dtype>::energy_cpu(const Dtype* indicatorValue) {
+
+  Dtype energySmooth = 0;
+  Dtype energyData = 0;
+  Dtype energyLogBarrier = 0;
+
+  Dtype* eHoriz = bufferEnergyGrad_.mutable_cpu_data();
+  this->timesHorizontalB_cpu(indicatorValue, eHoriz);
+  caffe_mul<Dtype>(N_, eHoriz, this->horizontal_, eHoriz);
+
+  Dtype* eVert = bufferEnergyGrad_.mutable_cpu_diff();
+  this->timesVerticalB_cpu(indicatorValue, eVert);
+  caffe_mul<Dtype>(N_, eVert, this->vertical_, eVert);
+
+  Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
+  for(int i = 0; i < N_; ++i) {
+    energySmooth += sqrt(eHoriz[i] * eHoriz[i] + eps);
+    energySmooth += sqrt(eVert[i] * eVert[i] + eps);
+    energyData += this->unit_[i] * indicatorValue[i];
+    energyLogBarrier += log(indicatorValue[i]) + log(1 - indicatorValue[i]);
+  }
+
+  return energySmooth + this->dataWeight_ * energyData - this->logBarrierWeight_ * energyLogBarrier;
+}
+
+
 template<typename Dtype>
 void SegmentationLayer<Dtype>::minimize_cpu(Dtype* indicatorValue,
                                             Dtype* indicatorGrad) {
@@ -149,11 +189,15 @@ void SegmentationLayer<Dtype>::minimize_cpu(Dtype* indicatorValue,
   Dtype gradientNorm = caffe_cpu_dot<Dtype>(N_, indicatorGrad, indicatorGrad);
   Dtype toleranceSquare = gradientTolerance_ * gradientTolerance_;
   int iter = 0;
+  LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(indicatorValue);
   while (gradientNorm > toleranceSquare && iter++ < minimizationIters_) {
-    LOG(INFO) << "Iter: " << iter << " GradNorm^2 = " << gradientNorm;
+//    LOG(INFO) << "Iter: " << iter << " GradNorm^2 = " << gradientNorm;
     caffe_axpy<Dtype>(N_, -stepSize_, indicatorGrad, indicatorValue);
     computeEnergyGradient_cpu(indicatorValue, indicatorGrad);
     gradientNorm = caffe_cpu_dot<Dtype>(N_, indicatorGrad, indicatorGrad);
+    if(iter % 100 == 0) {
+      LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(indicatorValue);
+    }
   }
   LOG(INFO) << "Iter: " << iter << " GradNorm^2 = " << gradientNorm;
 }
@@ -161,10 +205,8 @@ void SegmentationLayer<Dtype>::minimize_cpu(Dtype* indicatorValue,
 template<typename Dtype>
 void SegmentationLayer<Dtype>::computeEnergyGradient_cpu(Dtype* indicatorValue,
                                                          Dtype* indicatorGrad) {
-
   Dtype* du = bufferEnergyGrad_.mutable_cpu_data();
   Dtype* temp = bufferEnergyGrad_.mutable_cpu_diff();
-
   // dudx
   timesHorizontalB_cpu(indicatorValue, du);
   caffe_mul<Dtype>(N_, du, horizontal_, du);
@@ -231,6 +273,8 @@ void SegmentationLayer<Dtype>::timesHorizontalBt_cpu(const Dtype* grad,
     *(diffDx + width_ - 1) = 0;
     // subtract grad(:, 1:end) from diffDx(:, 2:end+1)
     caffe_axpy<Dtype>(width_ - 1, -1, grad, diffDx + 1);
+    grad += width_;
+    diffDx += width_;
   }
 }
 
@@ -253,15 +297,14 @@ void SegmentationLayer<Dtype>::hessianVector_cpu(const Dtype* indicator,
   caffe_set<Dtype>(N_, 0, Hv);
   //Forward Gradient
   caffe_copy<Dtype>(N_, indicator, point);
-  caffe_axpy<Dtype>(N_, 1, vec, point);
+  caffe_axpy<Dtype>(N_, eps, vec, point);
   computeEnergyGradient_cpu(point, grad);
   //Save the result
   caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
-  ;
 
   //Backward Gradient
   caffe_copy<Dtype>(N_, indicator, point);
-  caffe_axpy<Dtype>(N_, -1, vec, point);
+  caffe_axpy<Dtype>(N_, -eps, vec, point);
   computeEnergyGradient_cpu(point, grad);
 
   //Subtract
@@ -336,8 +379,8 @@ void SegmentationLayer<Dtype>::charbonnierD2_cpu(const Dtype* source,
 
   Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
   for (int i = 0; i < N_; ++i) {
-    Dtype denom = sqrt(source[i] * source[i] + eps);
-    dest[i] = eps / (denom * denom * denom);
+    Dtype denom = source[i] * source[i] + eps;
+    dest[i] = eps / (denom * sqrt(denom));
   }
 }
 
