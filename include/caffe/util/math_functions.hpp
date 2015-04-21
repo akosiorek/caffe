@@ -12,6 +12,9 @@
 
 namespace caffe {
 
+template <typename Dtype>
+Dtype caffe_cpu_nrm2(const int N, const Dtype* X);
+
 // Caffe gemm provides a simpler interface to the gemm functions, with the
 // limitation that the data has to be contiguous in memory.
 template <typename Dtype>

@@ -539,17 +539,22 @@ class SegmentationLayer : public Layer<Dtype> {
 
   Dtype energy_cpu(const Dtype* indicatorValue);
   void minimize_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
+
   void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
   void timesHorizontalB_cpu(const Dtype* f, Dtype* dx);
   void timesVerticalB_cpu(const Dtype* f, Dtype* dy);
   void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx);
   void timesVerticalBt_cpu(const Dtype* grad, Dtype* diffDy);
 
-  void hessianVector_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv);
+  void computeSparseHessian_cpu(const Dtype* indicator);
+  void sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out);
+  void approxHessVec_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv);
   void invHessianVector_cpu(const Dtype* indicator, const Dtype* vec,
                             Dtype* iHv);
   void charbonnierD1_cpu(const Dtype* source, Dtype* dest);
   void charbonnierD2_cpu(const Dtype* source, Dtype* dest);
+  void zeroLastRow_cpu(Dtype* v);
+  void zeroLastColumn_cpu(Dtype* v);
 
   int N_;
   int num_;
@@ -569,6 +574,7 @@ class SegmentationLayer : public Layer<Dtype> {
   Blob<Dtype> bufferResidualDirection_;
   Blob<Dtype> bufferMatVecStorage_;
   Blob<Dtype> bufferHessVec_;
+  Blob<Dtype> bufferHessian_;
 
   const Dtype* unit_;
   const Dtype* horizontal_;

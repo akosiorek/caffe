@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <vector>
+#include <cmath>
 
 #include "caffe/common.hpp"
 #include "caffe/layer.hpp"
@@ -53,8 +54,11 @@ void SegmentationLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   bufferResidualDirection_.Reshape(1, 1, height_, width_);
   bufferMatVecStorage_.Reshape(1, 1, height_, width_);
   bufferHessVec_.Reshape(1, 1, height_, width_);
+  bufferHessian_.Reshape(5, 1, height_, width_);
 }
 
+#include <exception>
+#include <fstream>
 template<typename Dtype>
 void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
                                            const vector<Blob<Dtype>*>& top) {
@@ -64,22 +68,55 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   Dtype* indicatorValue = top[0]->mutable_cpu_data();
   Dtype* indicatorGrad = top[0]->mutable_cpu_diff();
 
+
   unit_ = bottom[0]->cpu_data();
   horizontal_ = bottom[1]->cpu_data();
   vertical_ = bottom[2]->cpu_data();
 
   //initialize segmentation
-  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicatorValue);
+//  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicatorValue);
+  caffe_set<Dtype>(N_, 0.5, indicatorValue);
 
   for (int i = 0; i < num_; ++i) {
     LOG(INFO) << "Forwarding " << i << "/" << num_;
     minimize_cpu(indicatorValue, indicatorGrad);
+
+
+//    std::ofstream os("dump.txt");
+//
+//    LOG(INFO) << "Bottom:";
+//    for(auto blob : bottom) {
+//      for(int i = 0; i < blob->height(); ++i) {
+//        for(int j = 0; j < blob->width(); ++j) {
+//          os << blob->cpu_data()[i * blob->width() + j] << ",";
+//        }
+//        os << "\n";
+//      }
+//      os << "\n\n\n";
+//    }
+//    LOG(INFO) << "Top:";
+//    for(auto blob : top) {
+//      for(int i = 0; i < blob->height(); ++i) {
+//         for(int j = 0; j < blob->width(); ++j) {
+//           os << blob->cpu_data()[i * blob->width() + j] << ",";
+//         }
+//         os << "\n";
+//       }
+//       os << "\n\n\n";
+//    }
+//    os.close();
+//    std::terminate();
+
+//    LOG(INFO) << "indicator:";
+//    printVec(indicatorValue);
+
     indicatorValue += offset;
     indicatorGrad += offset;
     unit_ += offset;
     horizontal_ += offset;
     vertical_ += offset;
   }
+
   unit_ = nullptr;
   horizontal_ = nullptr;
   vertical_ = nullptr;
@@ -110,6 +147,9 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   for (int i = 0; i < num_; ++i) {
     //uniatary
     //H^-1 * lossGrad
+//    LOG(INFO) << "indicator:";
+//    printVec(indicatorValue);
+//    LOG(INFO) << "Energy = " << this->energy_cpu(indicatorValue);
     invHessianVector_cpu(indicatorValue, indicatorGrad, unitGrad);
     printVec(unitGrad);
 
@@ -191,15 +231,16 @@ void SegmentationLayer<Dtype>::minimize_cpu(Dtype* indicatorValue,
   int iter = 0;
   LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(indicatorValue);
   while (gradientNorm > toleranceSquare && iter++ < minimizationIters_) {
-//    LOG(INFO) << "Iter: " << iter << " GradNorm^2 = " << gradientNorm;
+//    printVec(indicatorValue);
+//    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicatorValue) << "\tGradientNorm = " << gradientNorm;
     caffe_axpy<Dtype>(N_, -stepSize_, indicatorGrad, indicatorValue);
     computeEnergyGradient_cpu(indicatorValue, indicatorGrad);
     gradientNorm = caffe_cpu_dot<Dtype>(N_, indicatorGrad, indicatorGrad);
     if(iter % 100 == 0) {
-      LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(indicatorValue);
+       LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicatorValue) << "\tGradientNorm = " << gradientNorm;
     }
   }
-  LOG(INFO) << "Iter: " << iter << " GradNorm^2 = " << gradientNorm;
+  LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicatorValue) << "\tGradientNorm = " << gradientNorm;
 }
 
 template<typename Dtype>
@@ -286,29 +327,178 @@ void SegmentationLayer<Dtype>::timesVerticalBt_cpu(const Dtype* grad,
   caffe_axpy<Dtype>(N_ - width_, -1, grad, diffDy + width_);
 }
 
-template<typename Dtype>
-void SegmentationLayer<Dtype>::hessianVector_cpu(const Dtype* indicator,
-                                                 const Dtype* vec, Dtype* Hv) {
 
-  Dtype eps = smoothnesEps_;
+template<typename Dtype>
+struct double_converter {
+  static void to(int N, const Dtype* X, double* Y) {
+      for(int i = 0; i < N; ++i) {
+        Y[i] = static_cast<double>(X[i]);
+      }
+    }
+
+  static void from(int N, const double* X, Dtype* Y)  {
+    for(int i = 0; i < N; ++i) {
+      Y[i] = static_cast<Dtype>(X[i]);
+    }
+  }
+};
+
+
+template<typename Dtype>
+void SegmentationLayer<Dtype>::computeSparseHessian_cpu(const Dtype* indicator) {
+
+  Dtype* du = bufferEnergyGrad_.mutable_cpu_data();
+
+  // super diagonals
+  Dtype* diagP2 = bufferHessian_.mutable_cpu_data();
+  Dtype* diagP1 = diagP2 + N_;
+
+  // diag
+  Dtype* diag = diagP1 + N_;
+
+  // sub diagonals
+  Dtype* diagM1 = diag + N_;
+  Dtype* diagM2 = diagM1 + N_;
+
+  caffe_set<Dtype>(5 * N_, 0, diagP2);
+
+// horizontal =========================
+  caffe_set<Dtype>(N_, 0, du);
+  timesHorizontalB_cpu(indicator, du);
+  caffe_mul<Dtype>(N_, du, horizontal_, du);
+  charbonnierD2_cpu(du, du);
+  // we're using padded du by 1 column; charbonnier puts there non-zero values which have to be taken care of
+  zeroLastColumn_cpu(du);
+  caffe_mul<Dtype>(N_, du, horizontal_, du);
+  caffe_mul<Dtype>(N_, du, horizontal_, du);
+
+  // diag
+  caffe_copy<Dtype>(N_, du, diag);
+  for (int i = 0; i < height_; ++i) {
+    size_t offset = i * width_;
+    diag[offset + width_ - 1] = 0;
+    // add g(:, 1:end) to g(:, 2:end+1)
+    caffe_axpy<Dtype>(width_ - 1, 1, du + offset, diag + offset + 1);
+  }
+
+  //superdiag
+  caffe_axpy<Dtype>(N_ - 1, -1, du, diagP1);
+
+  //subdiag
+  caffe_axpy<Dtype>(N_ - 1, -1, du, diagM1 + 1);
+
+//  vertical =======================================================
+  caffe_set<Dtype>(N_, 0, du);
+  timesVerticalB_cpu(indicator, du);
+  caffe_mul<Dtype>(N_, du, vertical_, du);
+  charbonnierD2_cpu(du, du);
+  zeroLastRow_cpu(du);
+  caffe_mul<Dtype>(N_, du, vertical_, du);
+  caffe_mul<Dtype>(N_, du, vertical_, du);
+
+  // diag
+  caffe_axpy<Dtype>(N_ - width_, 1, du, diag);
+  caffe_axpy<Dtype>(N_ - width_, 1, du, diag + width_);
+
+  //superdiag
+  caffe_axpy<Dtype>(N_ - width_, -1, du, diagP2);
+//
+  //subdiag
+  caffe_axpy<Dtype>(N_ - width_, -1, du, diagM2 + width_);
+
+// log barrier =======================================================
+  for(int i = 0; i < N_; ++i) {
+    Dtype u = indicator[i];
+    u = 1 / (u * u) + 1 / ((1 - u) * (1 - u));
+    diag[i] += this->logBarrierWeight_ * u;
+  }
+}
+
+template<typename Dtype>
+void SegmentationLayer<Dtype>::approxHessVec_cpu(const Dtype* indicator,
+                                                 const Dtype* vec, Dtype* Hv) {
+  Dtype maxElem = fabs(vec[0]);
+  for(int i = 1; i < N_; ++i) {
+    if(fabs(vec[i]) > maxElem) {
+      maxElem = fabs(vec[i]);
+    }
+  }
+
+  Dtype eps = fmax(1e-8, fmin(1, 1e-4 / maxElem));
   Dtype* point = bufferHessVec_.mutable_cpu_data();
   Dtype* grad = bufferHessVec_.mutable_cpu_diff();
 
   caffe_set<Dtype>(N_, 0, Hv);
-  //Forward Gradient
+
+//  //  2nd order
+//  //f(x + h)
+//  caffe_copy<Dtype>(N_, indicator, point);
+//  caffe_axpy<Dtype>(N_, eps, vec, point);
+//  computeEnergyGradient_cpu(point, grad);
+//  caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
+//
+//  //f(x - h)
+//  caffe_copy<Dtype>(N_, indicator, point);
+//  caffe_axpy<Dtype>(N_, -eps, vec, point);
+//  computeEnergyGradient_cpu(point, grad);
+//
+//  //Subtract
+//  caffe_axpy<Dtype>(N_, -0.5 / eps, grad, Hv);
+
+
+
+  //  4th order
+  //f(x + 2h)
+  caffe_copy<Dtype>(N_, indicator, point);
+  caffe_axpy<Dtype>(N_, 2*eps, vec, point);
+  computeEnergyGradient_cpu(point, grad);
+  caffe_axpy<Dtype>(N_, -1 / (12*eps), grad, Hv);
+
+  //f(x - 2h)
+  caffe_copy<Dtype>(N_, indicator, point);
+  caffe_axpy<Dtype>(N_, -2*eps, vec, point);
+  computeEnergyGradient_cpu(point, grad);
+  caffe_axpy<Dtype>(N_, 1 / (12*eps), grad, Hv);
+
+  //f(x + h)
   caffe_copy<Dtype>(N_, indicator, point);
   caffe_axpy<Dtype>(N_, eps, vec, point);
   computeEnergyGradient_cpu(point, grad);
-  //Save the result
-  caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
+  caffe_axpy<Dtype>(N_, 2 / (3*eps), grad, Hv);
 
-  //Backward Gradient
+  //f(x - 2h)
   caffe_copy<Dtype>(N_, indicator, point);
   caffe_axpy<Dtype>(N_, -eps, vec, point);
   computeEnergyGradient_cpu(point, grad);
+  caffe_axpy<Dtype>(N_, -2 / (3*eps), grad, Hv);
+}
 
-  //Subtract
-  caffe_axpy<Dtype>(N_, -0.5 / eps, grad, Hv);
+template<typename Dtype>
+void SegmentationLayer<Dtype>::sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out) {
+
+  // super diagonals
+  const Dtype* diagP2 = bufferHessian_.cpu_data();
+  const Dtype* diagP1 = diagP2 + N_;
+
+  // diag
+  const Dtype* diag = diagP1+ N_;
+
+  // sub diagonals
+  const Dtype* diagM1 = diag + N_;
+  const Dtype* diagM2 = diagM1 + N_;
+
+  out[0] = diag[0] * vec[0] + diagP1[0] * vec[1] + diagP2[0] * vec[width_];
+  for(int i = 1; i < width_; ++i) {
+    out[i] = diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1] + diagP2[i] * vec[i + width_];
+  }
+  for(int i = width_; i < N_ - width_; ++i) {
+    out[i] = diagM2[i] * vec[i - width_] + diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1] + diagP2[i] * vec[i + width_];
+  }
+  for(int i = N_ - width_; i < N_ - 1; ++i) {
+    out[i] = diagM2[i] * vec[i - width_] + diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1];
+  }
+
+  out[N_ - 1] = diagM2[N_ - 1] * vec[N_ - width_ - 1] + diagM1[N_ - 1] * vec[N_ - 2] + diag[N_ - 1] * vec[N_ - 1];
 }
 
 /**
@@ -321,45 +511,61 @@ void SegmentationLayer<Dtype>::invHessianVector_cpu(const Dtype* indicator,
 
   Dtype* residual = bufferResidualDirection_.mutable_cpu_data();
   Dtype* direction = bufferResidualDirection_.mutable_cpu_diff();
-
   Dtype* matVecProd = bufferMatVecStorage_.mutable_cpu_data();
+  Dtype* newDirectionBuffer = bufferMatVecStorage_.mutable_cpu_diff();
 
-  Dtype residualNormNew = 0;
-  Dtype residualNormOld = 0;
+  computeSparseHessian_cpu(indicator);
 
   //initialize iHv
-  caffe_set<Dtype>(N_, 1, iHv);
+  caffe_set<Dtype>(N_, 1.0, iHv);
 
-  // residual = b - Ax
-  caffe_copy<Dtype>(N_, indicator, residual);
-  hessianVector_cpu(indicator, indicator, matVecProd);
-  caffe_axpy<Dtype>(N_, -1, matVecProd, residual);
+
+
+//  approxHessVec_cpu(indicator, iHv, matVecProd);
+
+// residual = b - Ax
+    caffe_set<Dtype>(N_, 0, residual);
+    caffe_axpy<Dtype>(N_, -1, vec, residual);
+    sparseHessianMultiply_cpu(iHv, matVecProd);
+    caffe_axpy<Dtype>(N_, 1, matVecProd, residual);
+
+//  caffe_copy<Dtype>(N_, vec, residual);
+//  sparseHessianMultiply_cpu(iHv, matVecProd);
+//  caffe_axpy<Dtype>(N_, -1, matVecProd, residual);
 
   //direction
   caffe_copy<Dtype>(N_, residual, direction);
 
+  Dtype residualNorm = caffe_cpu_nrm2<Dtype>(N_, residual);
+  Dtype residualNormOld = 0;
   int iter = 0;
   while (iter++ < invHessIters_) {
-    residualNormNew = caffe_cpu_dot<Dtype>(N_, residual, residual);
-    hessianVector_cpu(indicator, direction, matVecProd);
-    Dtype alpha = residualNormNew
+    LOG(INFO) << "ResidualNorm at #iter = " << iter-1 << " = " << residualNorm;
+
+//    approxHessVec_cpu(indicator, direction, matVecProd);
+    sparseHessianMultiply_cpu(direction, matVecProd);
+
+    Dtype alpha = residualNorm * residualNorm
         / caffe_cpu_dot<Dtype>(N_, direction, matVecProd);
 
     //update iHv
     caffe_axpy<Dtype>(N_, alpha, direction, iHv);
 
-    residualNormOld = residualNormNew;
     // new residual
+    residualNormOld = residualNorm;
     caffe_axpy<Dtype>(N_, -alpha, matVecProd, residual);
-    residualNormNew = caffe_cpu_dot<Dtype>(N_, residual, residual);
-    if (sqrt(residualNormNew) < invHessTolerance_) {
+    residualNorm = caffe_cpu_nrm2<Dtype>(N_, residual);
+
+    if (residualNorm < invHessTolerance_) {
+      LOG(INFO) << "Terminated at #iter = " << iter << " with ResidualNorm = " << residualNorm;
       break;
     }
 
     // new direction
-    double beta = residualNormNew / residualNormOld;
-    caffe_axpy<Dtype>(N_, -(1 + beta), direction, direction);
-    caffe_axpy<Dtype>(N_, 1, residual, direction);
+    Dtype beta = -residualNorm * residualNorm / (residualNormOld * residualNormOld);
+    caffe_copy<Dtype>(N_, residual, newDirectionBuffer);
+    caffe_axpy<Dtype>(N_, -beta, direction, newDirectionBuffer);
+    caffe_copy<Dtype>(N_, newDirectionBuffer, direction);
   }
 }
 
@@ -381,6 +587,19 @@ void SegmentationLayer<Dtype>::charbonnierD2_cpu(const Dtype* source,
   for (int i = 0; i < N_; ++i) {
     Dtype denom = source[i] * source[i] + eps;
     dest[i] = eps / (denom * sqrt(denom));
+  }
+}
+
+template<typename Dtype>
+void SegmentationLayer<Dtype>::zeroLastRow_cpu(Dtype* v) {
+  caffe_set<Dtype>(width_, 0, v + N_ - width_);
+}
+
+template<typename Dtype>
+void SegmentationLayer<Dtype>::zeroLastColumn_cpu(Dtype* v) {
+
+  for (int i = width_ - 1; i < N_; i += width_) {
+    v[i] = 0;
   }
 }
 

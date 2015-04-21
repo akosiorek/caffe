@@ -9,6 +9,19 @@
 
 namespace caffe {
 
+template <>
+float caffe_cpu_nrm2<float>(const int N, const float* X) {
+  //3rd argument = 1 is increment
+  return cblas_snrm2(N, X, 1);
+}
+
+template <>
+double caffe_cpu_nrm2<double>(const int N, const double* X) {
+
+  return cblas_dnrm2(N, X, 1);
+}
+
+
 template<>
 void caffe_cpu_gemm<float>(const CBLAS_TRANSPOSE TransA,
     const CBLAS_TRANSPOSE TransB, const int M, const int N, const int K,
