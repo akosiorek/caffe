@@ -505,6 +505,10 @@ protected:
 };
 #endif
 
+#include <memory>
+template<typename Dtype>
+class SegmentationEnergy;
+
 template<typename Dtype>
 class SegmentationLayer : public Layer<Dtype> {
  public:
@@ -537,49 +541,16 @@ class SegmentationLayer : public Layer<Dtype> {
 //  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
 //      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
 
-  Dtype energy_cpu(const Dtype* indicatorValue);
-  void minimize_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
-
-  void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
-  void timesHorizontalB_cpu(const Dtype* f, Dtype* dx);
-  void timesVerticalB_cpu(const Dtype* f, Dtype* dy);
-  void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx);
-  void timesVerticalBt_cpu(const Dtype* grad, Dtype* diffDy);
-
-  void computeSparseHessian_cpu(const Dtype* indicator);
-  void sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out);
-  void approxHessVec_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv);
-  void invHessianVector_cpu(const Dtype* indicator, const Dtype* vec,
-                            Dtype* iHv);
-  void charbonnierD1_cpu(const Dtype* source, Dtype* dest);
-  void charbonnierD2_cpu(const Dtype* source, Dtype* dest);
-  void zeroLastRow_cpu(Dtype* v);
-  void zeroLastColumn_cpu(Dtype* v);
 
   int N_;
   int num_;
   int height_;
   int width_;
 
-  Dtype stepSize_;
-  Dtype dataWeight_;
-  Dtype logBarrierWeight_;
-  Dtype gradientTolerance_;
-  Dtype smoothnesEps_;
-  int minimizationIters_;
-  int invHessIters_;
-  Dtype invHessTolerance_;
+  Blob<Dtype> bufferBackwardProp_[2];
 
-  Blob<Dtype> bufferEnergyGrad_;
-  Blob<Dtype> bufferResidualDirection_;
-  Blob<Dtype> bufferMatVecStorage_;
-  Blob<Dtype> bufferHessVec_;
-  Blob<Dtype> bufferHessian_;
-
-  const Dtype* unit_;
-  const Dtype* horizontal_;
-  const Dtype* vertical_;
-
+  typedef SegmentationEnergy<Dtype> EnergyType;
+  std::unique_ptr<EnergyType> energy;
 };
 
 }  // namespace caffe

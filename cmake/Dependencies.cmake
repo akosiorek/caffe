@@ -123,3 +123,6 @@ endif()
 if(BUILD_docs)
   find_package(Doxygen)
 endif()
+
+find_package(Eigen)
+include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
