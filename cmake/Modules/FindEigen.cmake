@@ -78,5 +78,9 @@ else ()
   mark_as_advanced(EIGEN_INCLUDE_DIR)
   SET(EIGEN_INCLUDE_DIRS ${EIGEN_INCLUDE_DIR} CACHE PATH "The Eigen include path.")
 
+  if(EIGEN_FOUND)
+    message(STATUS "Found Eigen    (include: ${EIGEN_INCLUDE_DIR})")
+  endif(EIGEN_FOUND)
+
 endif()
 

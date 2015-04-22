@@ -5,7 +5,6 @@
 #include "segmentation_energy.h"
 #include "caffe/layer.hpp"
 
-#define EIGEN_YES_I_KNOW_SPARSE_MODULE_IS_NOT_STABLE_YET
 #include <Eigen/Sparse>
 #include <vector>
 
@@ -17,13 +16,9 @@ SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param
     this->dataWeight_ = param.data_weight();
     this->logBarrierWeight_ = param.log_barrier_weight();
     this->smoothnesEps_ = param.smoothnes_eps();
-
-    this->stepSize_ = param.step_size();
     this->gradientTolerance_ = param.gradient_norm_tolerance();
+    this->stepSize_ = param.step_size();
     this->minimizationIters_ = param.minimization_iters();
-
-//    this->invHessIters_ = param.inv_hess_iters();
-//    this->invHessTolerance_ = param.inv_hess_tolerance();
 }
 
 template<typename Dtype>
@@ -116,18 +111,33 @@ void SegmentationEnergy<Dtype>::minimize_cpu(Dtype* indicator) {
     Dtype* grad = bufferMinimization_.mutable_cpu_data();
 
     computeEnergyGradient_cpu(indicator, grad);
-    Dtype gradientNorm = caffe_cpu_dot<Dtype>(N_, grad, grad);
-    Dtype toleranceSquare = gradientTolerance_ * gradientTolerance_;
+
+    Dtype oldGradientNorm = std::numeric_limits<Dtype>::max();
+    Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+    Dtype energyOld = std::numeric_limits<Dtype>::max();
+    Dtype energy = energy_cpu(indicator);
     int iter = 0;
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(indicator);
-    while (gradientNorm > toleranceSquare && iter++ < minimizationIters_) {
-//    printVec(indicatorValue);
-//    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicatorValue) << "\tGradientNorm = " << gradientNorm;
+
+    LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+    while (iter++ < minimizationIters_) {
         caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
         computeEnergyGradient_cpu(indicator, grad);
-        gradientNorm = caffe_cpu_dot<Dtype>(N_, grad, grad);
-        if(iter % 100 == 0) {
-            LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicator) << "\tGradientNorm = " << gradientNorm;
+
+        if(iter % 10 == 0) {
+            oldGradientNorm = gradientNorm;
+            gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+
+            energyOld = energy;
+            energy = energy_cpu(indicator);
+
+            if((energy > 0.999 * energyOld) || (gradientNorm > oldGradientNorm) || (gradientNorm < gradientTolerance_)) {
+                break;
+            }
+
+            if (iter % 100 == 0) {
+                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+                gradientNorm;
+            }
         }
     }
     LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicator) << "\tGradientNorm = " << gradientNorm;
@@ -419,7 +429,7 @@ void SegmentationEnergy<Dtype>::sparseHessianMultiply_cpu(const Dtype* vec, Dtyp
 using namespace Eigen;
 
 template<typename Dtype>
-void makeTriplesfromDiag(const Dtype* from, std::vector<Triplet<Dtype>>& to, int xOffset, int yOffset, int N) {
+void makeTriplesfromDiag(std::vector<Triplet<Dtype>>& to, const Dtype* from, int xOffset, int yOffset, int N) {
 
     for(int i = 0; i < N; ++i) {
         to.emplace_back(yOffset + i, xOffset + i, from[i]);
@@ -431,7 +441,11 @@ template<typename Dtype>
 void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
                                                     const Dtype* vec,
                                                     Dtype* iHv) {
-    SparseMatrix<Dtype, RowMajor> hessian(N_, N_);
+
+    typedef SparseMatrix<Dtype, RowMajor> SparseMatrixType;
+    typedef Matrix<Dtype, Dynamic, 1> VectorType;
+
+    SparseMatrixType hessian(N_, N_);
     this->computeSparseHessian_cpu(indicator);
 
     {
@@ -444,15 +458,25 @@ void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
         const Dtype *diagM1 = diag + N_;
         const Dtype *diagM2 = diagM1 + N_;
 
-        copyDiagonal(hessian, diag, 0, 0, N_);
-        copyDiagonal(hessian, diagP1, 1, 0, N_ - 1);
-        copyDiagonal(hessian, diagM1 + 1, 0, 1, N_ - 1);
-        copyDiagonal(hessian, diagP2, width_, 0, N_ - width_);
-        copyDiagonal(hessian, diagM2, 0, width_, N_ - width_);
+        makeTriplesfromDiag(triplets, diag, 0, 0, N_);
+        makeTriplesfromDiag(triplets, diagP1, 1, 0, N_ - 1);
+        makeTriplesfromDiag(triplets, diagM1 + 1, 0, 1, N_ - 1);
+        makeTriplesfromDiag(triplets, diagP2, width_, 0, N_ - width_);
+        makeTriplesfromDiag(triplets, diagM2, 0, width_, N_ - width_);
         hessian.setFromTriplets(triplets.begin(), triplets.end());
     }
 
+    SparseLU<SparseMatrixType> solver;
+    solver.analyzePattern(hessian);
+    solver.factorize(hessian);
 
+//    BiCGSTAB<SparseMatrixType> solver;
+//    solver.compute(hessian);
+
+    Map<VectorType> vector(const_cast<Dtype*>(vec), N_, 1);
+    Map<VectorType> result(iHv, N_, 1);
+
+    result = solver.solve(vector);
 
 }
 

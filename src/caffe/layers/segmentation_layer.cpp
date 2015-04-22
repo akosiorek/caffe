@@ -48,6 +48,9 @@ void SegmentationLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
 
   energy->reshape(width_, height_);
   top[0]->Reshape(num_, 1, height_, width_);
+  for(auto& buffer : bufferBackwardProp_) {
+    buffer.Reshape(1, 1, height_, width_);
+  }
 }
 
 
@@ -59,10 +62,12 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   this->energy->setData(bottom[0], bottom[1], bottom[2]);
 
   //initialize segmentation
-//  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicatorValue);
-  caffe_set<Dtype>(N_, 0.5, indicator);
+  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicator);
+//  caffe_set<Dtype>(N_, 0.5, indicator);
 
+  printVec(indicator);
   energy->minimize_cpu(indicator);
+  printVec(indicator);
 }
 
 template<typename Dtype>
@@ -82,7 +87,6 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   Dtype* horizontalGrad = bottom[1]->mutable_cpu_diff();
   Dtype* verticalGrad = bottom[2]->mutable_cpu_diff();
 
-//  const Dtype* unit = bottom[0]->cpu_data();
   const Dtype* horizontal = bottom[1]->cpu_data();
   const Dtype* vertical = bottom[2]->cpu_data();
 
@@ -97,6 +101,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
 
     energy->charbonnierD1_cpu(au, term1);
     energy->charbonnierD2_cpu(au, term2);
+    energy->zeroLastColumn_cpu(term2);
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, horizontal, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
@@ -112,6 +117,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
 
     energy->charbonnierD1_cpu(au, term1);
     energy->charbonnierD2_cpu(au, term2);
+    energy->zeroLastRow_cpu(term2);
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, vertical, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
