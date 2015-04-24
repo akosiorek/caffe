@@ -124,5 +124,5 @@ if(BUILD_docs)
   find_package(Doxygen)
 endif()
 
-find_package(Eigen)
+find_package(Eigen 3.2 REQUIRED)
 include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})

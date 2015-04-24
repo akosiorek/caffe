@@ -53,18 +53,17 @@ macro(_eigen3_check_version)
   endif(NOT EIGEN_VERSION_OK)
 endmacro(_eigen3_check_version)
 
-if (EIGEN_INCLUDE_DIRS)
+unset(EIGEN_INCLUDE_DIRS)
 
-  # in cache already
-  _eigen3_check_version()
-  set(EIGEN_FOUND ${EIGEN_VERSION_OK})
-
-else ()
-
-  find_path(EIGEN_INCLUDE_DIR NAMES signature_of_eigen3_matrix_library
+  find_path(EIGEN_INCLUDE_DIR NAMES Eigen#signature_of_eigen3_matrix_library
       PATHS
       ${CMAKE_INSTALL_PREFIX}/include
       ${KDE4_INCLUDE_DIR}
+      HINTS
+      $ENV{EIGEN_ROOT}
+      $ENV{EIGEN_HOME} 
+      ${EIGEN_ROOT}
+      ${EIGEN_HOME}
       PATH_SUFFIXES eigen3 eigen
     )
 
@@ -77,10 +76,4 @@ else ()
 
   mark_as_advanced(EIGEN_INCLUDE_DIR)
   SET(EIGEN_INCLUDE_DIRS ${EIGEN_INCLUDE_DIR} CACHE PATH "The Eigen include path.")
-
-  if(EIGEN_FOUND)
-    message(STATUS "Found Eigen    (include: ${EIGEN_INCLUDE_DIR})")
-  endif(EIGEN_FOUND)
-
-endif()
 
