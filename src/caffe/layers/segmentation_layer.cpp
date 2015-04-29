@@ -13,29 +13,31 @@
 
 namespace caffe {
 
-
-#include <exception>
-#include <fstream>
-template<typename Dtype>
-void printVec(const Dtype* v) {
-  for(int i = 0; i < 9; ++i) {
-    std::cout << v[i] << " ";
-  }
-  std::cout << std::endl;
-}
-
 template<typename Dtype>
 void SegmentationLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
                                           const vector<Blob<Dtype>*>& top) {
 
   for (int i = 0; i < bottom.size(); ++i) {
-    CHECK_EQ(bottom[i]->channels(), 1)<< "Segmentation layer requiers a single channel input";
+    CHECK_EQ(bottom[i]->channels(), 1) << "Segmentation layer requiers a single channel input";
   }
 
   const SegmentationParameter param = this->layer_param_.segmentation_param();
 
-  energy = std::unique_ptr<EnergyType>(new EnergyType(param));
-  this->Reshape(bottom, top);
+
+  // Check if we need to set up the weights
+  if (this->blobs_.size() > 0) {
+    LOG(INFO) << "Skipping parameter initialization";
+  } else {
+    // Intialize the data-term weight
+    this->blobs_.resize(1);
+    this->blobs_[0].reset(new Blob<Dtype>(1, 1, 1, 1));
+    this->blobs_[0]->mutable_cpu_data()[0] = param.init_data_weight();
+  }
+
+  energy = std::unique_ptr<EnergyType>(new EnergyType(param, this->blobs_[0]));
+
+  // parameter initialization
+  this->param_propagate_down_.resize(this->blobs_.size(), true);
 }
 
 template<typename Dtype>
@@ -61,13 +63,7 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   Dtype* indicator = top[0]->mutable_cpu_data();
   this->energy->setData(bottom[0], bottom[1], bottom[2]);
 
-  //initialize segmentation
-  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicator);
-//  caffe_set<Dtype>(N_, 0.5, indicator);
-
-  printVec(indicator);
   energy->minimize_cpu(indicator);
-  printVec(indicator);
 }
 
 template<typename Dtype>
@@ -87,12 +83,15 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   Dtype* horizontalGrad = bottom[1]->mutable_cpu_diff();
   Dtype* verticalGrad = bottom[2]->mutable_cpu_diff();
 
+  const Dtype* unit = bottom[0]->cpu_data();
   const Dtype* horizontal = bottom[1]->cpu_data();
   const Dtype* vertical = bottom[2]->cpu_data();
 
-//uniatary
+//uniatary (1)
+// it has to be multiplied by the data weight
+// we don't do it now, since it's needed in this form by the other gradients
     energy->invHessianVector_cpu(indicator, grad, unitGrad);
-    printVec(unitGrad);
+    caffe_scal<Dtype>(N_, -1, unitGrad);
 
 //horizontal
 //TODO possible errors due to 0 padding; charbonnier introduces non-zero elements in padding
@@ -105,6 +104,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, horizontal, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
+//   caffe_mul<Dtype>(N_, horizontal, term2, term2);
 
 // Bh * (H^-1 * lossGrad)
     energy->timesHorizontalB_cpu(unitGrad, horizontalGrad);
@@ -121,10 +121,17 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, vertical, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
+//    caffe_mul<Dtype>(N_, vertical, term2, term2);
 
 // Bv * (H^-1 * lossGrad)
     energy->timesVerticalB_cpu(unitGrad, verticalGrad);
     caffe_mul<Dtype>(N_, term2, verticalGrad, verticalGrad);
+
+// data-weight update
+  this->blobs_[0]->mutable_cpu_diff()[0] = caffe_cpu_dot<Dtype>(N_, unitGrad, unit);
+
+  // multiply by data weight from (1)
+  caffe_scal<Dtype>(N_, this->blobs_[0]->cpu_data()[0], unitGrad);
 }
 
 

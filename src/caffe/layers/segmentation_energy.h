@@ -14,7 +14,7 @@ template<typename Dtype>
 class SegmentationEnergy {
 public:
 
-    SegmentationEnergy(const SegmentationParameter& param);
+    SegmentationEnergy(const SegmentationParameter& param, shared_ptr<Blob<Dtype>> dataWeight);
     void reshape(int width, int height);
     void setData(Blob<Dtype>* unit, Blob<Dtype>* horizontal, Blob<Dtype>* vertical);
 
@@ -49,13 +49,10 @@ public:
 
     Dtype stepSize_;
     int minimizationIters_;
-    Dtype gradientTolerance_;
-    Dtype dataWeight_;
     Dtype logBarrierWeight_;
     Dtype smoothnesEps_;
-//    Dtype invHessTolerance_;
-//    int invHessIters_;
 
+    shared_ptr<Blob<Dtype>> dataWeight_;
     Blob<Dtype>* unitaryPotential_;
     Blob<Dtype>* horizontalPotential_;
     Blob<Dtype>* verticalPotential_;
@@ -67,6 +64,16 @@ public:
     Blob<Dtype> bufferHessVec_;
     Blob<Dtype> bufferHessian_;
 };
+
+#include <sstream>
+template<typename Dtype>
+std::string vec2str(const Dtype* v) {
+    std::stringstream ss;
+    for(int i = 0; i < 9; ++i) {
+        ss << v[i] << " ";
+    }
+    return ss.str();
+}
 
 }  // namespace caffe
 

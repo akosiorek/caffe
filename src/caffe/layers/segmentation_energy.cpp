@@ -6,17 +6,22 @@
 #include "caffe/layer.hpp"
 
 #include <Eigen/Sparse>
-#include <vector>
 
 namespace caffe {
 
-template<typename Dtype>
-SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param) {
+    /**
+     * TODO:
+     * 1. implement Nesterov gradient
+     * 2. implement tests
+     **/
 
-    this->dataWeight_ = param.data_weight();
+
+template<typename Dtype>
+SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param, shared_ptr<Blob<Dtype>> dataWeight)
+    : dataWeight_(dataWeight) {
+
     this->logBarrierWeight_ = param.log_barrier_weight();
     this->smoothnesEps_ = param.smoothnes_eps();
-    this->gradientTolerance_ = param.gradient_norm_tolerance();
     this->stepSize_ = param.step_size();
     this->minimizationIters_ = param.minimization_iters();
 }
@@ -69,7 +74,7 @@ Dtype SegmentationEnergy<Dtype>::energy_cpu(const Dtype*indicator) {
         energyLogBarrier += log(indicator[i]) + log(1 - indicator[i]);
     }
 
-    return energySmooth + this->dataWeight_ * energyData - this->logBarrierWeight_ * energyLogBarrier;
+    return energySmooth + this->dataWeight_->cpu_data()[0] * energyData - this->logBarrierWeight_ * energyLogBarrier;
 }
 
 
@@ -96,7 +101,7 @@ void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(Dtype* indicator,
     caffe_axpy<Dtype>(N_, 1, temp, grad);
 
     //gradUnary
-    caffe_axpy(N_, dataWeight_, this->unitaryPotential_->cpu_data(), grad);
+    caffe_axpy(N_, this->dataWeight_->cpu_data()[0], this->unitaryPotential_->cpu_data(), grad);
 
     //gradLog
     for (int i = 0; i < N_; ++i) {
@@ -110,37 +115,64 @@ void SegmentationEnergy<Dtype>::minimize_cpu(Dtype* indicator) {
 
     Dtype* grad = bufferMinimization_.mutable_cpu_data();
 
-    computeEnergyGradient_cpu(indicator, grad);
+    int repeat = 4;
 
-    Dtype oldGradientNorm = std::numeric_limits<Dtype>::max();
-    Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
-    Dtype energyOld = std::numeric_limits<Dtype>::max();
-    Dtype energy = energy_cpu(indicator);
-    int iter = 0;
+//    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
+//    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
+//    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
+//    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
 
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-    while (iter++ < minimizationIters_) {
-        caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
+    while(--repeat > 0) {
+        //initialize segmentation
+        caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicator);
+//         caffe_set<Dtype>(N_, 0.5, indicator);
+
+//        LOG(INFO) << "indicator: " << vec2str(indicator);
+
         computeEnergyGradient_cpu(indicator, grad);
 
-        if(iter % 10 == 0) {
-            oldGradientNorm = gradientNorm;
-            gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+        Dtype oldGradientNorm = std::numeric_limits<Dtype>::max();
+        Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+        Dtype energyOld = std::numeric_limits<Dtype>::max();
+        Dtype energy = energy_cpu(indicator);
+        int iter = 0;
 
-            energyOld = energy;
-            energy = energy_cpu(indicator);
+//        LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+        while (iter++ < minimizationIters_) {
+            caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
+            computeEnergyGradient_cpu(indicator, grad);
 
-            if((energy > 0.999 * energyOld) || (gradientNorm > oldGradientNorm) || (gradientNorm < gradientTolerance_)) {
-                break;
-            }
+            if (iter % 10 == 0) {
+                oldGradientNorm = gradientNorm;
+                gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
 
-            if (iter % 100 == 0) {
-                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
-                gradientNorm;
+                energyOld = energy;
+                energy = energy_cpu(indicator);
+
+                if (std::isnan(energy) || (energy > 0.999 * energyOld) || (gradientNorm > oldGradientNorm)) {
+                    break;
+                }
+
+//                if (iter % 100 == 0) {
+//                    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+//                    gradientNorm;
+//                }
             }
         }
+
+        if (std::isnan(energy) || std::isinf(energy)) {
+            if(repeat > 1) {
+                LOG(INFO) << "Energy NaN or Inf. Reinitializing Indicator";
+            } else {
+                LOG(FATAL) << "Energy is Nan. Terminating";
+            }
+        } else {
+//            LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicator) << "\tGradientNorm = " <<
+            gradientNorm;
+            repeat = 0;
+        }
     }
-    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicator) << "\tGradientNorm = " << gradientNorm;
+//    LOG(INFO) << "indicator: " << vec2str(indicator);
 }
 
 
@@ -477,6 +509,8 @@ void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
     Map<VectorType> result(iHv, N_, 1);
 
     result = solver.solve(vector);
+
+//    LOG(INFO) << "iHv: " << vec2str(iHv);
 
 }
 
