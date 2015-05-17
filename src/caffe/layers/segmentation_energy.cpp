@@ -39,6 +39,7 @@ void SegmentationEnergy<Dtype>::reshape(int width, int height) {
     bufferMatVecStorage_.Reshape(1, 1, height_, width_);
     bufferHessVec_.Reshape(1, 1, height_, width_);
     bufferHessian_.Reshape(5, 1, height_, width_);
+    bufferNAG_.Reshape(1, 1, height_, width_);
 }
 
 template<typename Dtype>
@@ -111,22 +112,14 @@ void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(Dtype* indicator,
 }
 
 template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimize_cpu(Dtype* indicator) {
+void SegmentationEnergy<Dtype>::minimizeGD_cpu(Dtype *indicator) {
 
     Dtype* grad = bufferMinimization_.mutable_cpu_data();
-
-    int repeat = 4;
 
 //    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
 //    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
 //    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
 //    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
-
-    while(--repeat > 0) {
-        //initialize segmentation
-        caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicator);
-//         caffe_set<Dtype>(N_, 0.5, indicator);
-
 //        LOG(INFO) << "indicator: " << vec2str(indicator);
 
         computeEnergyGradient_cpu(indicator, grad);
@@ -149,30 +142,102 @@ void SegmentationEnergy<Dtype>::minimize_cpu(Dtype* indicator) {
                 energyOld = energy;
                 energy = energy_cpu(indicator);
 
-                if (std::isnan(energy) || (energy > 0.999 * energyOld) || (gradientNorm > oldGradientNorm)) {
+                if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)) {
                     break;
                 }
 
-//                if (iter % 100 == 0) {
-//                    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
-//                    gradientNorm;
-//                }
+                if (iter % 100 == 0) {
+                    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+                    gradientNorm;
+                }
             }
         }
+//    LOG(INFO) << "indicator: "cd << vec2str(indicator);
 
-        if (std::isnan(energy) || std::isinf(energy)) {
-            if(repeat > 1) {
-                LOG(INFO) << "Energy NaN or Inf. Reinitializing Indicator";
-            } else {
-                LOG(FATAL) << "Energy is Nan. Terminating";
+    if (std::isnan(energy) || std::isinf(energy)) {
+        LOG(FATAL) << "Energy is Nan. Terminating";
+    }
+}
+
+template<typename Dtype>
+Dtype computeLambda(Dtype oldLambda) {
+    return 0.5 * (1 + std::sqrt(1 + 4 * oldLambda * oldLambda));
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) {
+
+    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
+    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
+    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
+    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
+
+    Dtype* grad = bufferMinimization_.mutable_cpu_data();
+
+    computeEnergyGradient_cpu(indicator, grad);
+
+    Dtype oldGradientNorm = std::numeric_limits<Dtype>::max();
+    Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+    Dtype energyOld = std::numeric_limits<Dtype>::max();
+    Dtype energy = energy_cpu(indicator);
+    int iter = 0;
+
+    // initialize algorithm params
+    Dtype lambdaOld = 0;
+    Dtype lambdaNew = computeLambda(lambdaOld);
+    Dtype gamma = 0;
+    Dtype* yOld = bufferNAG_.mutable_cpu_data();
+    Dtype* yNew = bufferNAG_.mutable_cpu_data();
+
+    caffe_set<Dtype>(N_, 0, yOld);
+    caffe_copy<Dtype>(N_, indicator, yNew);
+
+    LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+    while (iter++ < minimizationIters_) {
+//        caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
+//        computeEnergyGradient_cpu(indicator, grad);
+
+        lambdaOld = lambdaNew;
+        lambdaNew = computeLambda(lambdaOld);
+        gamma = (1 - lambdaOld) / lambdaNew;
+
+        // yOld = yNew
+        caffe_copy<Dtype>(N_, yOld, yNew);
+
+        // yNew = indicator - stepSize * grad(indicator)
+        computeEnergyGradient_cpu(indicator, grad);
+        caffe_copy<Dtype>(N_, indicator, yNew);
+        caffe_axpy<Dtype>(N_, -stepSize_, grad, yNew);
+
+        // indicator = (1 - gamma) * yNew + gamma * yOld
+        caffe_copy<Dtype>(N_, yNew, indicator);
+        caffe_scal<Dtype>(N_, 1 - gamma, indicator);
+        caffe_axpy<Dtype>(N_, gamma, yOld, indicator);
+
+        if (iter % 10 == 0) {
+            oldGradientNorm = gradientNorm;
+            gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+
+            energyOld = energy;
+            energy = energy_cpu(indicator);
+
+            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm) || gradientNorm < 1) {
+                break;
             }
-        } else {
-//            LOG(INFO) << "Energy at #iter: " << iter << " = " << energy_cpu(indicator) << "\tGradientNorm = " <<
-            gradientNorm;
-            repeat = 0;
+
+//            if (iter % 100 == 0) {
+//                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+//                gradientNorm;
+//            }
         }
     }
-//    LOG(INFO) << "indicator: " << vec2str(indicator);
+//    LOG(INFO) << "indicator: "cd << vec2str(indicator);
+
+    if (std::isnan(energy) || std::isinf(energy)) {
+        LOG(FATAL) << "Energy is Nan. Terminating";
+    }
+    LOG(INFO) << "Terminating at #iter: " << iter << " Energy = " << energy << "\tGradientNorm = " << gradientNorm;
+    LOG(INFO) << "indicator: " << vec2str(indicator);
 }
 
 
@@ -316,47 +381,20 @@ void SegmentationEnergy<Dtype>::approxHessVec_cpu(const Dtype* indicator,
 
     caffe_set<Dtype>(N_, 0, Hv);
 
-//  //  2nd order
-//  //f(x + h)
-//  caffe_copy<Dtype>(N_, indicator, point);
-//  caffe_axpy<Dtype>(N_, eps, vec, point);
-//  computeEnergyGradient_cpu(point, grad);
-//  caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
-//
-//  //f(x - h)
-//  caffe_copy<Dtype>(N_, indicator, point);
-//  caffe_axpy<Dtype>(N_, -eps, vec, point);
-//  computeEnergyGradient_cpu(point, grad);
-//
-//  //Subtract
-//  caffe_axpy<Dtype>(N_, -0.5 / eps, grad, Hv);
+  //  2nd order
+  //f(x + h)
+  caffe_copy<Dtype>(N_, indicator, point);
+  caffe_axpy<Dtype>(N_, eps, vec, point);
+  computeEnergyGradient_cpu(point, grad);
+  caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
 
+  //f(x - h)
+  caffe_copy<Dtype>(N_, indicator, point);
+  caffe_axpy<Dtype>(N_, -eps, vec, point);
+  computeEnergyGradient_cpu(point, grad);
 
-
-    //  4th order
-    //f(x + 2h)
-    caffe_copy<Dtype>(N_, indicator, point);
-    caffe_axpy<Dtype>(N_, 2*eps, vec, point);
-    computeEnergyGradient_cpu(point, grad);
-    caffe_axpy<Dtype>(N_, -1 / (12*eps), grad, Hv);
-
-    //f(x - 2h)
-    caffe_copy<Dtype>(N_, indicator, point);
-    caffe_axpy<Dtype>(N_, -2*eps, vec, point);
-    computeEnergyGradient_cpu(point, grad);
-    caffe_axpy<Dtype>(N_, 1 / (12*eps), grad, Hv);
-
-    //f(x + h)
-    caffe_copy<Dtype>(N_, indicator, point);
-    caffe_axpy<Dtype>(N_, eps, vec, point);
-    computeEnergyGradient_cpu(point, grad);
-    caffe_axpy<Dtype>(N_, 2 / (3*eps), grad, Hv);
-
-    //f(x - 2h)
-    caffe_copy<Dtype>(N_, indicator, point);
-    caffe_axpy<Dtype>(N_, -eps, vec, point);
-    computeEnergyGradient_cpu(point, grad);
-    caffe_axpy<Dtype>(N_, -2 / (3*eps), grad, Hv);
+  //Subtract
+  caffe_axpy<Dtype>(N_, -0.5 / eps, grad, Hv);
 }
 
 
@@ -387,6 +425,149 @@ void SegmentationEnergy<Dtype>::sparseHessianMultiply_cpu(const Dtype* vec, Dtyp
 
     out[N_ - 1] = diagM2[N_ - 1] * vec[N_ - width_ - 1] + diagM1[N_ - 1] * vec[N_ - 2] + diag[N_ - 1] * vec[N_ - 1];
 }
+
+using namespace Eigen;
+
+template<typename Dtype>
+void makeTriplesfromDiag(std::vector<Triplet<Dtype>>& to, const Dtype* from, int xOffset, int yOffset, int N) {
+
+    for(int i = 0; i < N; ++i) {
+        to.emplace_back(yOffset + i, xOffset + i, from[i]);
+    }
+}
+
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
+                                                    const Dtype* vec,
+                                                    Dtype* iHv) {
+
+    typedef SparseMatrix<Dtype, RowMajor> SparseMatrixType;
+    typedef Matrix<Dtype, Dynamic, 1> VectorType;
+
+    SparseMatrixType hessian(N_, N_);
+    this->computeSparseHessian_cpu(indicator);
+
+    {
+        std::vector<Triplet<Dtype>> triplets;
+        triplets.reserve(5 * N_ - 2 * (width_ + 1));
+
+        const Dtype *diagP2 = bufferHessian_.cpu_data();
+        const Dtype *diagP1 = diagP2 + N_;
+        const Dtype *diag = diagP1 + N_;
+        const Dtype *diagM1 = diag + N_;
+        const Dtype *diagM2 = diagM1 + N_;
+
+        makeTriplesfromDiag(triplets, diag, 0, 0, N_);
+        makeTriplesfromDiag(triplets, diagP1, 1, 0, N_ - 1);
+        makeTriplesfromDiag(triplets, diagM1 + 1, 0, 1, N_ - 1);
+        makeTriplesfromDiag(triplets, diagP2, width_, 0, N_ - width_);
+        makeTriplesfromDiag(triplets, diagM2, 0, width_, N_ - width_);
+        hessian.setFromTriplets(triplets.begin(), triplets.end());
+    }
+
+    SparseLU<SparseMatrixType> solver;
+    solver.analyzePattern(hessian);
+    solver.factorize(hessian);
+
+    Map<VectorType> vector(const_cast<Dtype*>(vec), N_, 1);
+    Map<VectorType> result(iHv, N_, 1);
+
+    result = solver.solve(vector);
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::charbonnierD1_cpu(const Dtype* in,
+                                                 Dtype* out) {
+
+    Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
+    for (int i = 0; i < N_; ++i) {
+        out[i] = in[i] / sqrt(in[i] * in[i] + eps);
+    }
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::charbonnierD2_cpu(const Dtype* in,
+                                                 Dtype* out) {
+
+    Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
+    for (int i = 0; i < N_; ++i) {
+        Dtype denom = in[i] * in[i] + eps;
+        out[i] = eps / (denom * sqrt(denom));
+    }
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::zeroLastRow_cpu(Dtype* v) {
+    caffe_set<Dtype>(width_, 0, v + N_ - width_);
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::zeroLastColumn_cpu(Dtype* v) {
+    for (int i = width_ - 1; i < N_; i += width_) {
+        v[i] = 0;
+    }
+}
+
+INSTANTIATE_CLASS(SegmentationEnergy);
+
+}  // namespace caffe
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//    //  4th order derivative approximation by Finite Differences
+//    //f(x + 2h)
+//    caffe_copy<Dtype>(N_, indicator, point);
+//    caffe_axpy<Dtype>(N_, 2*eps, vec, point);
+//    computeEnergyGradient_cpu(point, grad);
+//    caffe_axpy<Dtype>(N_, -1 / (12*eps), grad, Hv);
+//
+//    //f(x - 2h)
+//    caffe_copy<Dtype>(N_, indicator, point);
+//    caffe_axpy<Dtype>(N_, -2*eps, vec, point);
+//    computeEnergyGradient_cpu(point, grad);
+//    caffe_axpy<Dtype>(N_, 1 / (12*eps), grad, Hv);
+//
+//    //f(x + h)
+//    caffe_copy<Dtype>(N_, indicator, point);
+//    caffe_axpy<Dtype>(N_, eps, vec, point);
+//    computeEnergyGradient_cpu(point, grad);
+//    caffe_axpy<Dtype>(N_, 2 / (3*eps), grad, Hv);
+//
+//    //f(x - 2h)
+//    caffe_copy<Dtype>(N_, indicator, point);
+//    caffe_axpy<Dtype>(N_, -eps, vec, point);
+//    computeEnergyGradient_cpu(point, grad);
+//    caffe_axpy<Dtype>(N_, -2 / (3*eps), grad, Hv);
+
+
+
+
+
+
+
+
 
 
 ///**
@@ -456,97 +637,3 @@ void SegmentationEnergy<Dtype>::sparseHessianMultiply_cpu(const Dtype* vec, Dtyp
 //        caffe_copy<Dtype>(N_, newDirectionBuffer, direction);
 //    }
 //}
-
-
-using namespace Eigen;
-
-template<typename Dtype>
-void makeTriplesfromDiag(std::vector<Triplet<Dtype>>& to, const Dtype* from, int xOffset, int yOffset, int N) {
-
-    for(int i = 0; i < N; ++i) {
-        to.emplace_back(yOffset + i, xOffset + i, from[i]);
-    }
-}
-
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
-                                                    const Dtype* vec,
-                                                    Dtype* iHv) {
-
-    typedef SparseMatrix<Dtype, RowMajor> SparseMatrixType;
-    typedef Matrix<Dtype, Dynamic, 1> VectorType;
-
-    SparseMatrixType hessian(N_, N_);
-    this->computeSparseHessian_cpu(indicator);
-
-    {
-        std::vector<Triplet<Dtype>> triplets;
-        triplets.reserve(5 * N_ - 2 * (width_ + 1));
-
-        const Dtype *diagP2 = bufferHessian_.cpu_data();
-        const Dtype *diagP1 = diagP2 + N_;
-        const Dtype *diag = diagP1 + N_;
-        const Dtype *diagM1 = diag + N_;
-        const Dtype *diagM2 = diagM1 + N_;
-
-        makeTriplesfromDiag(triplets, diag, 0, 0, N_);
-        makeTriplesfromDiag(triplets, diagP1, 1, 0, N_ - 1);
-        makeTriplesfromDiag(triplets, diagM1 + 1, 0, 1, N_ - 1);
-        makeTriplesfromDiag(triplets, diagP2, width_, 0, N_ - width_);
-        makeTriplesfromDiag(triplets, diagM2, 0, width_, N_ - width_);
-        hessian.setFromTriplets(triplets.begin(), triplets.end());
-    }
-
-    SparseLU<SparseMatrixType> solver;
-    solver.analyzePattern(hessian);
-    solver.factorize(hessian);
-
-//    BiCGSTAB<SparseMatrixType> solver;
-//    solver.compute(hessian);
-
-    Map<VectorType> vector(const_cast<Dtype*>(vec), N_, 1);
-    Map<VectorType> result(iHv, N_, 1);
-
-    result = solver.solve(vector);
-
-//    LOG(INFO) << "iHv: " << vec2str(iHv);
-
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::charbonnierD1_cpu(const Dtype* in,
-                                                 Dtype* out) {
-
-    Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
-    for (int i = 0; i < N_; ++i) {
-        out[i] = in[i] / sqrt(in[i] * in[i] + eps);
-    }
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::charbonnierD2_cpu(const Dtype* in,
-                                                 Dtype* out) {
-
-    Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
-    for (int i = 0; i < N_; ++i) {
-        Dtype denom = in[i] * in[i] + eps;
-        out[i] = eps / (denom * sqrt(denom));
-    }
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::zeroLastRow_cpu(Dtype* v) {
-    caffe_set<Dtype>(width_, 0, v + N_ - width_);
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::zeroLastColumn_cpu(Dtype* v) {
-    for (int i = width_ - 1; i < N_; i += width_) {
-        v[i] = 0;
-    }
-}
-
-INSTANTIATE_CLASS(SegmentationEnergy);
-
-}  // namespace caffe

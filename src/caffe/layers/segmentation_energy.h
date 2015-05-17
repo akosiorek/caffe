@@ -22,7 +22,10 @@ public:
 
     Dtype energy_cpu(const Dtype* indicatorValue);
     void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
-    void minimize_cpu(Dtype* indicator);
+    // Gradient Descent
+    void minimizeGD_cpu(Dtype *indicator);
+    // Nesterov's Accelerated Gradient
+    void minimizeNAG_cpu(Dtype *indicator);
     void timesHorizontalB_cpu(const Dtype* f, Dtype* dx);
     void timesVerticalB_cpu(const Dtype* f, Dtype* dy);
     void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx);
@@ -63,6 +66,7 @@ public:
     Blob<Dtype> bufferMatVecStorage_;
     Blob<Dtype> bufferHessVec_;
     Blob<Dtype> bufferHessian_;
+    Blob<Dtype> bufferNAG_;
 };
 
 #include <sstream>

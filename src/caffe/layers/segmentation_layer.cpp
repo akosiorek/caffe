@@ -63,7 +63,11 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   Dtype* indicator = top[0]->mutable_cpu_data();
   this->energy->setData(bottom[0], bottom[1], bottom[2]);
 
-  energy->minimize_cpu(indicator);
+  //initialize segmentation
+  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicator);
+  //caffe_set<Dtype>(N_, 0.5, indicator);
+
+  energy->minimizeNAG_cpu(indicator);
 }
 
 template<typename Dtype>
