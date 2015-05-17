@@ -24,12 +24,12 @@ namespace caffe {
 
 template<typename T>
 struct tolerance_trait {
-  static const constexpr double tol = 1e-6;
+  static const constexpr double tol = 1e-8;
 };
 
 template<>
 struct tolerance_trait<float> {
-  static const constexpr float tol = 1e-3;
+  static const constexpr float tol = 1e-6;
 };
 
 
@@ -97,8 +97,8 @@ public:
   std::unique_ptr<SegmentationEnergy<Dtype>> energy;
 };
 
-//TYPED_TEST_CASE(SegmentationenergyTest, TestDtypes);
-TYPED_TEST_CASE(SegmentationenergyTest, ::testing::Types<double>);
+TYPED_TEST_CASE(SegmentationenergyTest, TestDtypes);
+//TYPED_TEST_CASE(SegmentationenergyTest, ::testing::Types<double>);
 
 
 TYPED_TEST(SegmentationenergyTest, TestTimesHorizontalB_CPU) {
@@ -182,7 +182,7 @@ TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationNesterovAcceleratedGrad
     }
 }
 
-// works for double, for float smoothnes_eps is too small!
+// tests finite-difference hessian-vec approximation
 TYPED_TEST(SegmentationenergyTest, TestApproxHessianVec_CPU) {
 
     TypeParam result[9] = { 0.0748398918926085,         0.861344049711832,        0.0599899557474082,
@@ -195,7 +195,8 @@ TYPED_TEST(SegmentationenergyTest, TestApproxHessianVec_CPU) {
 
     this->energy->approxHessVec_cpu(this->indicator.data(), vec, this->output.data());
 
-    ASSERT_NEAR_VEC(this->output.data(), result, 9);
+    // finite differences aren't too good, especially for floats
+    ASSERT_NEAR_VEC_WTOL(this->output.data(), result, 9, this->tolerance * 1e3);
 }
 
 TYPED_TEST(SegmentationenergyTest, TestSparseHessianMultiply_CPU) {
@@ -255,7 +256,7 @@ TYPED_TEST(SegmentationenergyTest, TestSparseHessianVec_CPU) {
   this->energy->computeSparseHessian_cpu(this->indicator.data());
   this->energy->sparseHessianMultiply_cpu(this->indicator.data(), this->output.data());
 
-  ASSERT_NEAR_VEC(this->output.data(), finiteDifferenceApprox, 9);
+  ASSERT_NEAR_VEC_WTOL(this->output.data(), finiteDifferenceApprox, 9, this->tolerance * 1e3);
 }
 
 TYPED_TEST(SegmentationenergyTest, TestInvertedHessianVec_CPU) {
