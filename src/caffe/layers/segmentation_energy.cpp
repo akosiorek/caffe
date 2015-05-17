@@ -221,7 +221,7 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) {
             energyOld = energy;
             energy = energy_cpu(indicator);
 
-            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm) || gradientNorm < 1) {
+            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)) {// || gradientNorm < 1) {
                 break;
             }
 
