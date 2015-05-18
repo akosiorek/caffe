@@ -29,9 +29,17 @@ class SegmentationLayerTest : public ::testing::Test {
 
 	  segmentationParam->set_step_size(10);
 	  segmentationParam->set_minimization_iters(1e2);
-	  segmentationParam->set_init_data_weight(1);
+	  segmentationParam->set_init_data_weight(0.5);
 	  segmentationParam->set_log_barrier_weight(1e-3);
 	  segmentationParam->set_smoothnes_eps(1e-3);
+	  segmentationParam->set_min_grad_norm(0);
+	  segmentationParam->set_step_size_decay(1);
+	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
+	  filler->set_type("uniform");
+	  filler->set_min(0.1);
+	  filler->set_max(0.9);
+//	  filler->set_type("constant");
+//    filler->set_value(0.5);
 	  layer = std::move(std::unique_ptr<SegmentationLayer<Dtype>>(new SegmentationLayer<Dtype>(layerParam)));
 
 

@@ -139,24 +139,24 @@ int test() {
     Caffe::set_mode(Caffe::CPU);
   }
   // Instantiate the caffe net.
-  Net<float> caffe_net(FLAGS_model, caffe::TEST);
+  Net<double> caffe_net(FLAGS_model, caffe::TEST);
   caffe_net.CopyTrainedLayersFrom(FLAGS_weights);
   LOG(INFO) << "Running for " << FLAGS_iterations << " iterations.";
 
-  vector<Blob<float>* > bottom_vec;
+  vector<Blob<double>* > bottom_vec;
   vector<int> test_score_output_id;
-  vector<float> test_score;
-  float loss = 0;
+  vector<double> test_score;
+  double loss = 0;
   for (int i = 0; i < FLAGS_iterations; ++i) {
-    float iter_loss;
-    const vector<Blob<float>*>& result =
+    double iter_loss;
+    const vector<Blob<double>*>& result =
         caffe_net.Forward(bottom_vec, &iter_loss);
     loss += iter_loss;
     int idx = 0;
     for (int j = 0; j < result.size(); ++j) {
-      const float* result_vec = result[j]->cpu_data();
+      const double* result_vec = result[j]->cpu_data();
       for (int k = 0; k < result[j]->count(); ++k, ++idx) {
-        const float score = result_vec[k];
+        const double score = result_vec[k];
         if (i == 0) {
           test_score.push_back(score);
           test_score_output_id.push_back(j);
@@ -174,10 +174,10 @@ int test() {
   for (int i = 0; i < test_score.size(); ++i) {
     const std::string& output_name = caffe_net.blob_names()[
         caffe_net.output_blob_indices()[test_score_output_id[i]]];
-    const float loss_weight =
+    const double loss_weight =
         caffe_net.blob_loss_weights()[caffe_net.output_blob_indices()[i]];
     std::ostringstream loss_msg_stream;
-    const float mean_score = test_score[i] / FLAGS_iterations;
+    const double mean_score = test_score[i] / FLAGS_iterations;
     if (loss_weight) {
       loss_msg_stream << " (* " << loss_weight
                       << " = " << loss_weight * mean_score << " loss)";

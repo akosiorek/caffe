@@ -22,7 +22,7 @@ void SegmentationLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   }
 
   const SegmentationParameter param = this->layer_param_.segmentation_param();
-
+  indicatorFiller_ = shared_ptr<Filler<Dtype>>(GetFiller<Dtype>(param.indicator_filler()));
 
   // Check if we need to set up the weights
   if (this->blobs_.size() > 0) {
@@ -65,7 +65,8 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
   //initialize segmentation
 //  caffe_rng_uniform<Dtype>(N_, 0.1, 0.9, indicator);
-  caffe_set<Dtype>(N_, 0.5, indicator);
+//  caffe_set<Dtype>(N_, 0.5, indicator);
+  indicatorFiller_->Fill(top[0]);
 
   energy->minimizeNAG_cpu(indicator);
 }
@@ -131,6 +132,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     energy->timesVerticalB_cpu(unitGrad, verticalGrad);
     caffe_mul<Dtype>(N_, term2, verticalGrad, verticalGrad);
 
+//TODO not checked in tests
 // data-weight update
   this->blobs_[0]->mutable_cpu_diff()[0] = caffe_cpu_dot<Dtype>(N_, unitGrad, unit);
 

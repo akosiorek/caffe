@@ -24,6 +24,8 @@ SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param
     this->smoothnesEps_ = param.smoothnes_eps();
     this->stepSize_ = param.step_size();
     this->minimizationIters_ = param.minimization_iters();
+    this->minGradNorm_ = param.min_grad_norm();
+    this->stepSizeDecay_ = param.step_size_decay();
 }
 
 template<typename Dtype>
@@ -142,7 +144,7 @@ void SegmentationEnergy<Dtype>::minimizeGD_cpu(Dtype *indicator) {
                 energyOld = energy;
                 energy = energy_cpu(indicator);
 
-                if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)) {
+                if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm) || gradientNorm < minGradNorm_) {
                     break;
                 }
 
@@ -192,7 +194,9 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) {
     caffe_set<Dtype>(N_, 0, yOld);
     caffe_copy<Dtype>(N_, indicator, yNew);
 
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+    Dtype stepSize = this->stepSize_;
+
+    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " gradientNorm = " << gradientNorm;
     while (iter++ < minimizationIters_) {
 //        caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
 //        computeEnergyGradient_cpu(indicator, grad);
@@ -207,7 +211,7 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) {
         // yNew = indicator - stepSize * grad(indicator)
         computeEnergyGradient_cpu(indicator, grad);
         caffe_copy<Dtype>(N_, indicator, yNew);
-        caffe_axpy<Dtype>(N_, -stepSize_, grad, yNew);
+        caffe_axpy<Dtype>(N_, -stepSize, grad, yNew);
 
         // indicator = (1 - gamma) * yNew + gamma * yOld
         caffe_copy<Dtype>(N_, yNew, indicator);
@@ -221,14 +225,19 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) {
             energyOld = energy;
             energy = energy_cpu(indicator);
 
-            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)) {// || gradientNorm < 1) {
+            if (std::isnan(energy) || gradientNorm < minGradNorm_) {
+//            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)  || gradientNorm < minGradNorm_) {
                 break;
             }
 
-//            if (iter % 100 == 0) {
-//                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
-//                gradientNorm;
-//            }
+            if (iter % 100 == 0) {
+                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+                gradientNorm;
+            }
+
+            if(iter % 1000 == 0) {
+              stepSize *= stepSizeDecay_;
+            }
         }
     }
 //    LOG(INFO) << "indicator: "cd << vec2str(indicator);
@@ -237,7 +246,8 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) {
         LOG(FATAL) << "Energy is Nan. Terminating";
     }
     LOG(INFO) << "Terminating at #iter: " << iter << " Energy = " << energy << "\tGradientNorm = " << gradientNorm;
-    LOG(INFO) << "indicator: " << vec2str(indicator);
+//    LOG(INFO) << "indicator: " << vec2str(indicator);
+    LOG(INFO) << "indicator max = " << *std::max_element(indicator, indicator + N_) << " min = " << *std::min_element(indicator, indicator + N_);
 }
 
 

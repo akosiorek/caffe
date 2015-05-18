@@ -54,6 +54,8 @@ public:
     int minimizationIters_;
     Dtype logBarrierWeight_;
     Dtype smoothnesEps_;
+    Dtype minGradNorm_;
+    Dtype stepSizeDecay_;
 
     shared_ptr<Blob<Dtype>> dataWeight_;
     Blob<Dtype>* unitaryPotential_;

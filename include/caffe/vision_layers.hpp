@@ -551,6 +551,7 @@ class SegmentationLayer : public Layer<Dtype> {
 
   typedef SegmentationEnergy<Dtype> EnergyType;
   std::unique_ptr<EnergyType> energy;
+  shared_ptr<Filler<Dtype>> indicatorFiller_;
 };
 
 }  // namespace caffe
