@@ -5,6 +5,8 @@
 #ifndef CAFFE_SEGMENTATION_ENERGY_H
 #define CAFFE_SEGMENTATION_ENERGY_H
 
+#include <Eigen/Sparse>
+
 #include "caffe/common.hpp"
 #include "caffe/blob.hpp"
 
@@ -12,35 +14,40 @@ namespace caffe {
 
 template<typename Dtype>
 class SegmentationEnergy {
+ public:
+  typedef Eigen::SparseMatrix<Dtype, Eigen::RowMajor> SparseMatrixT;
 public:
 
     SegmentationEnergy(const SegmentationParameter& param, shared_ptr<Blob<Dtype>> dataWeight);
     void reshape(int width, int height);
-    void setData(Blob<Dtype>* unit, Blob<Dtype>* horizontal, Blob<Dtype>* vertical);
+    void setData(const Blob<Dtype>* unit, const Blob<Dtype>* horizontal, const Blob<Dtype>* vertical);
 
 //  CPU ========================================================================
 
-    Dtype energy_cpu(const Dtype* indicatorValue);
-    void computeEnergyGradient_cpu(Dtype* indicatorValue, Dtype* indicatorGrad);
+    Dtype energy_cpu(const Dtype* indicatorValue) const;
+    void computeEnergyGradient_cpu(const Dtype* indicatorValue, Dtype* indicatorGrad) const;
     // Gradient Descent
-    void minimizeGD_cpu(Dtype *indicator);
+    void minimizeGD_cpu(Dtype *indicator) const;
     // Nesterov's Accelerated Gradient
-    void minimizeNAG_cpu(Dtype *indicator);
-    void timesHorizontalB_cpu(const Dtype* f, Dtype* dx);
-    void timesVerticalB_cpu(const Dtype* f, Dtype* dy);
-    void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx);
-    void timesVerticalBt_cpu(const Dtype* grad, Dtype* diffDy);
+    void minimizeNAG_cpu(Dtype *indicator) const;
+    void timesHorizontalB_cpu(const Dtype* f, Dtype* dx) const;
+    void timesVerticalB_cpu(const Dtype* f, Dtype* dy) const;
+    void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx) const;
+    void timesVerticalBt_cpu(const Dtype* grad, Dtype* diffDy) const;
 
-    void computeSparseHessian_cpu(const Dtype* indicator);
-    void sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out);
-    void approxHessVec_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv);
+    void computeSparseHessian_cpu(const Dtype* indicator) const;
+//    void sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out) const;
+//    void approxHessVec_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv) const;
     void invHessianVector_cpu(const Dtype* indicator, const Dtype* vec,
-                              Dtype* iHv);
+                              Dtype* iHv) const;
 
-    void charbonnierD1_cpu(const Dtype* source, Dtype* dest);
-    void charbonnierD2_cpu(const Dtype* source, Dtype* dest);
-    void zeroLastRow_cpu(Dtype* v);
-    void zeroLastColumn_cpu(Dtype* v);
+    void charbonnierD1_cpu(const Dtype* source, Dtype* dest) const;
+    void charbonnierD2_cpu(const Dtype* source, Dtype* dest) const;
+    void zeroLastRow_cpu(Dtype* v) const;
+    void zeroLastColumn_cpu(Dtype* v) const;
+
+    void makeTriplesfromDiag(std::vector<Eigen::Triplet<Dtype>>& to, const Dtype* from, int xOffset, int yOffset, int N) const;
+    SparseMatrixT convertHessianToEigenSparse() const;
 
 //  GPU ========================================================================
 
@@ -58,17 +65,17 @@ public:
     Dtype stepSizeDecay_;
 
     shared_ptr<Blob<Dtype>> dataWeight_;
-    Blob<Dtype>* unitaryPotential_;
-    Blob<Dtype>* horizontalPotential_;
-    Blob<Dtype>* verticalPotential_;
+    const Blob<Dtype>* unitaryPotential_;
+    const Blob<Dtype>* horizontalPotential_;
+    const Blob<Dtype>* verticalPotential_;
 
-    Blob<Dtype> bufferEnergyGrad_;
-    Blob<Dtype> bufferMinimization_;
-    Blob<Dtype> bufferResidualDirection_;
-    Blob<Dtype> bufferMatVecStorage_;
-    Blob<Dtype> bufferHessVec_;
-    Blob<Dtype> bufferHessian_;
-    Blob<Dtype> bufferNAG_;
+    mutable Blob<Dtype> bufferEnergyGrad_;
+    mutable Blob<Dtype> bufferMinimization_;
+    mutable Blob<Dtype> bufferResidualDirection_;
+    mutable Blob<Dtype> bufferMatVecStorage_;
+    mutable Blob<Dtype> bufferHessVec_;
+    mutable Blob<Dtype> bufferHessian_;
+    mutable Blob<Dtype> bufferNAG_;
 };
 
 #include <sstream>

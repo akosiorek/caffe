@@ -511,6 +511,9 @@ class SegmentationEnergy;
 
 template<typename Dtype>
 class SegmentationLayer : public Layer<Dtype> {
+public:
+  typedef SegmentationEnergy<Dtype> EnergyType;
+
  public:
   explicit SegmentationLayer(const LayerParameter& param)
       : Layer<Dtype>(param) {}
@@ -528,6 +531,10 @@ class SegmentationLayer : public Layer<Dtype> {
   }
   virtual inline int ExactNumTopBlobs() const {
     return 1;
+  }
+
+  const EnergyType& getEnergy() const {
+    return *this->energy;
   }
 
  protected:
@@ -549,7 +556,7 @@ class SegmentationLayer : public Layer<Dtype> {
 
   Blob<Dtype> bufferBackwardProp_[2];
 
-  typedef SegmentationEnergy<Dtype> EnergyType;
+
   std::unique_ptr<EnergyType> energy;
   shared_ptr<Filler<Dtype>> indicatorFiller_;
 };

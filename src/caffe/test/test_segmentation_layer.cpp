@@ -27,8 +27,8 @@ class SegmentationLayerTest : public ::testing::Test {
  	   bottomVec({&unitPotential, &horizontalPotential, &verticalPotential}),
  	   topVec({&topBlob}) {
 
-	  segmentationParam->set_step_size(10);
-	  segmentationParam->set_minimization_iters(1e2);
+	  segmentationParam->set_step_size(1e-3);
+	  segmentationParam->set_minimization_iters(1e3);
 	  segmentationParam->set_init_data_weight(0.5);
 	  segmentationParam->set_log_barrier_weight(1e-3);
 	  segmentationParam->set_smoothnes_eps(1e-3);
@@ -38,14 +38,16 @@ class SegmentationLayerTest : public ::testing::Test {
 	  filler->set_type("uniform");
 	  filler->set_min(0.1);
 	  filler->set_max(0.9);
-//	  filler->set_type("constant");
-//    filler->set_value(0.5);
+
 	  layer = std::move(std::unique_ptr<SegmentationLayer<Dtype>>(new SegmentationLayer<Dtype>(layerParam)));
 
-
-	  for(auto bottom : bottomVec) {
-	    bottom->Reshape(1, 1, 3, 3);
+	  for(auto blob : bottomVec) {
+	    blob->Reshape(1, 1, 3, 3);
+	    caffe_rng_uniform<Dtype>(9, 0.499, 0.501, blob->mutable_cpu_data());
 	  }
+	  caffe_set<Dtype>(9, 0.1, unitPotential.mutable_cpu_data());
+	  caffe_set<Dtype>(9, 0.3, horizontalPotential.mutable_cpu_data());
+	  caffe_set<Dtype>(9, 0.4, verticalPotential.mutable_cpu_data());
 
     layer->SetUp(this->bottomVec, this->topVec);
   }
@@ -85,19 +87,18 @@ TYPED_TEST(SegmentationLayerTest, ForwardTest) {
   this->layer->Forward(this->bottomVec, this->topVec);
   const Dtype* data = this->topBlob.cpu_data();
 
-  shared_ptr<Blob<Dtype>> dataWeight(new Blob<Dtype>);
-  dataWeight->Reshape(1, 1, 1, 1);
-  *dataWeight->mutable_cpu_data() = 1;
-  SegmentationEnergy<Dtype> energy(*this->segmentationParam, dataWeight);
-  energy.reshape(3, 3);
-  energy.setData(&this->unitPotential, &this->horizontalPotential, &this->verticalPotential);
-
-
+  const auto& energy = this->layer->getEnergy();
+  // energy value
   auto energyValue = energy.energy_cpu(data);
+  ASSERT_LE(energyValue, 0.5);
 
-  // not that it proves anything...
-  EXPECT_LE(energyValue, 1);
-//  LOG(ERROR) << energyValue;
+
+  // energy gradient norm
+  energy.computeEnergyGradient_cpu(this->topBlob.cpu_data(), this->topBlob.mutable_cpu_diff());
+  auto gradientNorm = caffe_cpu_nrm2<Dtype>(9, this->topBlob.cpu_diff());
+//  LOG(ERROR) << "Gradient norm = " << gradientNorm;
+
+  ASSERT_LE(gradientNorm, 0.35);
 }
 
 TYPED_TEST(SegmentationLayerTest, GradientTest) {
@@ -105,9 +106,9 @@ TYPED_TEST(SegmentationLayerTest, GradientTest) {
 
   //only for doubles due to cancellation
   if(sizeof(Dtype) == sizeof(double)) {
-  GradientChecker<Dtype> checker(1e-6, 1e-3);
-  checker.CheckGradientExhaustive(this->layer.get(), this->bottomVec,
-          this->topVec);
+  GradientChecker<Dtype> checker(1e-4, 1e-3);
+//  checker.CheckGradientExhaustive(this->layer.get(), this->bottomVec, this->topVec);
+  checker.CheckGradientSingle(this->layer.get(), this->bottomVec, this->topVec, 0, -1, 0);
   }
 }
 
