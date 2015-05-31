@@ -180,7 +180,7 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) const {
 
     Dtype minGradientNorm = std::numeric_limits<Dtype>::max();
     Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
-    Dtype energyOld = std::numeric_limits<Dtype>::max();
+    Dtype minEnergy = std::numeric_limits<Dtype>::max();
     Dtype energy = energy_cpu(indicator);
     int iter = 0;
 
@@ -222,12 +222,13 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) const {
             minGradientNorm = std::min(gradientNorm, minGradientNorm);
             gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
 
-            energyOld = energy;
+            minEnergy = std::min(energy, minEnergy);
             energy = energy_cpu(indicator);
 
 //            if (std::isnan(energy) || gradientNorm < minGradNorm_) {
 //            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)  || gradientNorm < minGradNorm_) {
-            if (std::isnan(energy) || (gradientNorm > 1.1 * minGradientNorm)  || gradientNorm < minGradNorm_) {
+//            if (std::isnan(energy) || (gradientNorm > 1.2 * minGradientNorm)  || gradientNorm < minGradNorm_) {
+            if (std::isnan(energy) || (energy > 1.1 * minEnergy)  || gradientNorm < minGradNorm_) {
                 break;
             }
 
