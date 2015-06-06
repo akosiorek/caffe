@@ -1,0 +1,556 @@
+name: "SegmentationNet"
+
+# =====================================================================================================================
+# Data Layers =========================================================================================================
+# =====================================================================================================================
+
+# Train ======================
+
+layer {
+  name: "data"
+  type: "Data"
+  top: "data"
+  top: "garbage1"
+  include {
+    phase: TRAIN
+  }
+  transform_param {
+    mean_file: "data/segmentation/horses_mean.binaryproto"
+    scale: 0.00390625
+  }
+  data_param {
+    source: "data/segmentation/horses_data_train"
+    batch_size: 1
+    backend: LMDB
+  }
+}
+layer {
+  name: "data"
+  type: "Data"
+  top: "label"
+  top: "garbage2"
+  include {
+    phase: TRAIN
+  }
+  data_param {
+    source: "data/segmentation/horses_label_train"
+    batch_size: 1
+    backend: LMDB
+  }
+}
+
+
+# Test ======================
+
+layer {
+  name: "data"
+  type: "Data"
+  top: "data"
+  top: "garbage1"
+  include {
+    phase: TEST
+  }
+  transform_param {
+    mean_file: "data/segmentation/horses_mean.binaryproto"
+    scale: 0.00390625
+  }
+  data_param {
+    source: "data/segmentation/horses_data_test"
+    batch_size: 1
+    backend: LMDB
+  }
+}
+layer {
+  name: "data"
+  type: "Data"
+  top: "label"
+  top: "garbage2"
+  include {
+    phase: TEST
+  }
+  data_param {
+    source: "data/segmentation/horses_label_test"
+    batch_size: 1
+    backend: LMDB
+  }
+}
+
+
+# =====================================================================================================================
+# Unitary Potential Network ===========================================================================================
+# =====================================================================================================================
+
+
+layer {
+  name: "Uconv1"
+  type: "Convolution"
+  bottom: "data"
+  top: "Uconv1"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 5
+    kernel_size: 11
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Urelu1"
+  type: "ReLU"
+  bottom: "Uconv1"
+  top: "Uconv1"
+}
+layer {
+  name: "Uconv2"
+  type: "Convolution"
+  bottom: "Uconv1"
+  top: "Uconv2"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 4
+    kernel_size: 9
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Urelu2"
+  type: "ReLU"
+  bottom: "Uconv2"
+  top: "Uconv2"
+}
+layer {
+  name: "Uconv3"
+  type: "Convolution"
+  bottom: "Uconv2"
+  top: "Uconv3"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 3
+    kernel_size: 7
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Urelu3"
+  type: "ReLU"
+  bottom: "Uconv3"
+  top: "Uconv3"
+}
+layer {
+  name: "Uconv4"
+  type: "Convolution"
+  bottom: "Uconv3"
+  top: "Uconv4"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 2
+    kernel_size: 5
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Urelu4"
+  type: "ReLU"
+  bottom: "Uconv4"
+  top: "Uconv4"
+}
+layer {
+  name: "Uconv5"
+  type: "Convolution"
+  bottom: "Uconv4"
+  top: "Uconv5"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 2
+    kernel_size: 5
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Urelu5"
+  type: "ReLU"
+  bottom: "Uconv5"
+  top: "Uconv5"
+}
+layer {
+  name: "Uconv6"
+  type: "Convolution"
+  bottom: "Uconv5"
+  top: "Uconv6"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 1
+    kernel_size: 1
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Urelu6"
+  type: "ReLU"
+  bottom: "Uconv6"
+  top: "Uconv6"
+}
+
+# =====================================================================================================================
+# Horizontal Piecewise Potential Network ==============================================================================
+# =====================================================================================================================
+
+layer {
+  name: "Hconv1"
+  type: "Convolution"
+  bottom: "data"
+  top: "Hconv1"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 5
+    kernel_size: 11
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Hrelu1"
+  type: "ReLU"
+  bottom: "Hconv1"
+  top: "Hconv1"
+}
+layer {
+  name: "Hconv2"
+  type: "Convolution"
+  bottom: "Hconv1"
+  top: "Hconv2"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 4
+    kernel_size: 9
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Hrelu2"
+  type: "ReLU"
+  bottom: "Hconv2"
+  top: "Hconv2"
+}
+layer {
+  name: "Hconv3"
+  type: "Convolution"
+  bottom: "Hconv2"
+  top: "Hconv3"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 1
+    kernel_size: 1
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Hrelu3"
+  type: "ReLU"
+  bottom: "Hconv3"
+  top: "Hconv3"
+}
+
+# =====================================================================================================================
+# Vertical Piecewise Potential Network ================================================================================
+# =====================================================================================================================
+
+layer {
+  name: "Vconv1"
+  type: "Convolution"
+  bottom: "data"
+  top: "Vconv1"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 5
+    kernel_size: 11
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Vrelu1"
+  type: "ReLU"
+  bottom: "Vconv1"
+  top: "Vconv1"
+}
+layer {
+  name: "Vconv2"
+  type: "Convolution"
+  bottom: "Vconv1"
+  top: "Vconv2"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 5
+    pad: 4
+    kernel_size: 9
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Vrelu2"
+  type: "ReLU"
+  bottom: "Vconv2"
+  top: "Vconv2"
+}
+layer {
+  name: "Vconv3"
+  type: "Convolution"
+  bottom: "Vconv2"
+  top: "Vconv3"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 1
+    kernel_size: 1
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "Vrelu3"
+  type: "ReLU"
+  bottom: "Vconv3"
+  top: "Vconv3"
+}
+
+# =====================================================================================================================
+# Segmentation Layer ==================================================================================================
+# =====================================================================================================================
+
+layer {
+  name: "segmentation"
+  type: "Segmentation"
+  bottom: "Uconv6"
+  bottom: "Hconv3"
+  bottom: "Vconv3"
+  top: "segmentation"
+  param {
+    lr_mult: 1
+    decay_mult: 0
+  }
+
+  segmentation_param {
+    step_size: 1e-3
+    init_data_weight: 1
+    log_barrier_weight: 1e-3
+    min_grad_norm: 4
+    smoothnes_eps: 1e-3
+    minimization_iters: 1e3
+    step_size_decay: 1
+    convex_param: 1
+    init_lipschitz_constant: 1e2
+
+    indicator_filler {
+      type: "constant"
+      value: 0.5
+    }
+  }
+}
+
+# =====================================================================================================================
+# Output Layers ======================================================================================================
+# ====================================================================================================================
+
+#layer {
+#  name: "flatdata"
+#  type: "Flatten"
+#  bottom: "segmentation"
+#  top: "flatdata"
+#}
+#
+#layer {
+#  name: "flatlabel"
+#  type: "Flatten"
+#  bottom: "label"
+#  top: "flatlabel"
+#}
+#layer {
+#  name: "accuracy"
+#  type: "Accuracy"
+#  bottom: "fc8"
+#  bottom: "label"
+#  top: "accuracy"
+#  include {
+#    phase: TEST
+#  }
+#}
+
+layer {
+  name: "loss"
+  type: "SoftmaxWithLoss"
+  bottom: "segmentation"
+  bottom: "label"
+  top: "loss"
+}
