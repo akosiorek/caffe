@@ -557,8 +557,8 @@ public:
   Blob<Dtype> bufferBackwardProp_[2];
 
 
-  std::unique_ptr<EnergyType> energy;
-  shared_ptr<Filler<Dtype>> indicatorFiller_;
+  shared_ptr<EnergyType> energy;
+  shared_ptr<Filler<Dtype> > indicatorFiller_;
 };
 
 }  // namespace caffe

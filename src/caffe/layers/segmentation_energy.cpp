@@ -9,13 +9,6 @@ using namespace Eigen;
 
 namespace caffe {
 
-    /**
-     * TODO:
-     * 1. implement Nesterov gradient
-     * 2. implement tests
-     **/
-
-
 template<typename Dtype>
 SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param, shared_ptr<Blob<Dtype>> dataWeight)
     : dataWeight_(dataWeight) {
@@ -26,6 +19,9 @@ SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param
     this->minimizationIters_ = param.minimization_iters();
     this->minGradNorm_ = param.min_grad_norm();
     this->stepSizeDecay_ = param.step_size_decay();
+
+    this->convexParam_ = param.convex_param();
+    this->initLipschnitzConstant_ = param.init_lipschitz_constant();
 }
 
 template<typename Dtype>
@@ -42,6 +38,11 @@ void SegmentationEnergy<Dtype>::reshape(int width, int height) {
     bufferHessVec_.Reshape(1, 1, height_, width_);
     bufferHessian_.Reshape(5, 1, height_, width_);
     bufferNAG_.Reshape(1, 1, height_, width_);
+
+    bufferArgMinGrapMap_.Reshape(4, 1, height_, width_);
+    bufferArgMinEstFuns_.Reshape(4, 1, height_, width_);
+    bufferNCOBF1_.Reshape(1, 1, height_, width_);
+    bufferNCOBF2_.Reshape(1, 1, height_, width_);
 }
 
 template<typename Dtype>
@@ -80,10 +81,10 @@ Dtype SegmentationEnergy<Dtype>::energy_cpu(const Dtype*indicator) const {
     return energySmooth + this->dataWeight_->cpu_data()[0] * energyData - this->logBarrierWeight_ * energyLogBarrier;
 }
 
-
 template<typename Dtype>
-void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(const Dtype* indicator,
-                                                         Dtype* grad) const {
+void SegmentationEnergy<Dtype>::computeEnergyGradientPiecewise_cpu(const Dtype* indicator,
+                                                                   Dtype* grad) const {
+
     Dtype* du = bufferEnergyGrad_.mutable_cpu_data();
     Dtype* temp = bufferEnergyGrad_.mutable_cpu_diff();
 
@@ -102,15 +103,20 @@ void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(const Dtype* indicator
     caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
     timesVerticalBt_cpu(du, temp);
     caffe_axpy<Dtype>(N_, 1, temp, grad);
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(const Dtype* indicator,
+                                                         Dtype* grad) const {
+    computeEnergyGradientPiecewise_cpu(indicator, grad);
 
     //gradUnary
     caffe_axpy(N_, this->dataWeight_->cpu_data()[0], this->unitaryPotential_->cpu_data(), grad);
 
     //gradLog
     for (int i = 0; i < N_; ++i) {
-        du[i] = 1 / indicator[i] - 1 / (1 - indicator[i]);
+        grad[i] -= logBarrierWeight_ * (1 / indicator[i] - 1 / (1 - indicator[i]));
     }
-    caffe_axpy<Dtype>(N_, -logBarrierWeight_, du, grad);
 }
 
 template<typename Dtype>
@@ -252,6 +258,206 @@ void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) const {
     LOG(INFO) << "indicator max = " << *std::max_element(indicator, indicator + N_) << " min = " << *std::min_element(indicator, indicator + N_);
 }
 
+template<typename Dtype>
+Dtype rootHelper(Dtype x) {
+    if(x > 0) {
+        return -std::pow(-x, 1.0/3);
+    }
+    return std::pow(x, 1.0/3);
+}
+
+template<typename Dtype>
+std::array<std::complex<Dtype>, 3> cubicRoots(Dtype a, Dtype b, Dtype c, Dtype d) {
+
+    using ComplexT = std::complex<Dtype>;
+    static const ComplexT i(0, 1);
+
+    std::array<ComplexT, 3> roots;
+
+    b /= a;
+    c /= a;
+    d /= a;
+
+    Dtype q = (3 * c - b * b) / 9;
+    Dtype r = -(27 * d) + b * (9 * c - 2 * b * b);
+    r = r / 54;
+
+    Dtype disc = q * q * q + r * r;
+    Dtype term1 = b / 3;
+
+    // one root real, two are complex
+    if (disc > 0) {
+        Dtype s = rootHelper(r + std::sqrt(disc));
+        Dtype t = rootHelper(r - std::sqrt(disc));
+        roots[0] = -term1 + s + t;
+        term1 = term1 + (s + t) / 2;
+
+        roots[1] = -term1;
+        roots[2] = -term1;
+        term1 = std::sqrt(3) * (-t + s) / 2;
+        roots[1] = roots[1] + i * term1;
+        roots[2] = roots[2] - i * term1;
+
+        // The remaining options are all real
+    } else if (disc == 0) { // All roots real, at least two are equal.
+
+        Dtype r13 = rootHelper(r);
+        roots[0] = -term1 + 2.0 * r13;
+        roots[1] = roots[2] = -(r13 + term1);
+    } else {// Only option left is that all roots are real and unequal (to get here, q < 0)
+        q = -q;
+        Dtype dum1 = q * q * q;
+        dum1 = std::acos(r / std::sqrt(dum1));
+        ComplexT r13 = 2 * std::sqrt(q);
+        roots[0] = -term1 + r13 * std::cos(dum1 / 3);
+        roots[1] = -term1 + r13 * std::cos((dum1 + 2 * (float)M_PI) / 3);
+        roots[2] = -term1 + r13 * std::cos((dum1 + 4 * (float)M_PI) / 3);
+    }
+    return roots;
+}
+
+template<typename Dtype>
+void getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) {
+
+    for(int i = 0; i < N; ++i) {
+        auto roots = cubicRoots(a[i], b[i], c[i], d[i]);
+        bool set = false;
+        for(int j = 0; j < 3; ++j) {
+            auto& root = roots[j];
+            if(root.imag() == 0 && root.real() > 0 && root.real() < 1) {
+                result[i] = root.real();
+                set = true;
+                break;
+            }
+        }
+        CHECK(set) << "Only imaginary or invalid roots!";
+    }
+}
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const {
+
+    Dtype* a = bufferArgMinGrapMap_.mutable_cpu_data();
+    Dtype* b = a + N_;
+    Dtype* c = b + N_;
+    Dtype* d = c + N_;
+
+    // save piecewiese energy gradient in c
+    computeEnergyGradientPiecewise_cpu(y, c);
+
+    // a
+    caffe_set<Dtype>(N_, -L, a);
+    caffe_axpy<Dtype>(N_, -dataWeight_->cpu_data()[0], unitaryPotential_->cpu_data(), a);
+
+    // b
+    caffe_set<Dtype>(N_, L, b);
+    caffe_axpy<Dtype>(N_, L, y, b);
+    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0], unitaryPotential_->cpu_data(), b);
+    caffe_axpy<Dtype>(N_, -1, c, b);
+
+    // c
+    caffe_axpy<Dtype>(N_, -L, y, c);
+    caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_, c);
+
+    // d
+    caffe_set<Dtype>(N_, -logBarrierWeight_, d);
+
+    getValidRoots(N_, a, b, c, d, argMin);
+};
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const {
+
+    Dtype* a = bufferArgMinEstFuns_.mutable_cpu_data();
+    Dtype* b = a + N_;
+    Dtype* c = b + N_;
+    Dtype* d = c + N_;
+
+    // update coefficients
+
+    // a
+    caffe_axpy<Dtype>(N_, -dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), a);
+
+    // b
+    computeEnergyGradientPiecewise_cpu(y, b);
+    caffe_scal<Dtype>(N_, -ak, b);
+    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), b);
+
+    // c
+    caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_ * ak, c);
+
+    // d
+    caffe_add_scalar<Dtype>(N_, -logBarrierWeight_ * ak, d);
+
+    getValidRoots(N_, a, b, c, d, argMin);
+}
+
+
+template<typename Dtype>
+void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
+
+    static const Dtype gammaU = 2;  // Lipschitz constant scaling parameters
+    static const Dtype gammaD = 2;  // Author mentioned that gammaU = gammaD is a reasonable choice
+
+    Dtype* v = bufferNCOBF1_.mutable_cpu_data();
+    Dtype* y = bufferNCOBF1_.mutable_cpu_diff();
+    Dtype* t = bufferNCOBF2_.mutable_cpu_data();
+    Dtype* grad = bufferNCOBF2_.mutable_cpu_diff();
+
+    Dtype L = initLipschnitzConstant_;
+    Dtype A = 0;
+    Dtype ak = 0;
+
+    // intit coeffs for computing v
+    {
+        Dtype *a = bufferArgMinEstFuns_.mutable_cpu_data();
+        Dtype *b = a + N_;
+        Dtype *c = b + N_;
+        Dtype *d = c + N_;
+
+        caffe_set<Dtype>(N_, -1, a);
+        caffe_set<Dtype>(N_, 1, b);
+        caffe_axpy<Dtype>(N_, 1, x, b);
+        caffe_set<Dtype>(N_, 0, c);
+        caffe_set<Dtype>(N_, 0, d);
+    }
+
+    for(int iter = 0; iter < minimizationIters_; ++iter) {
+
+        Dtype gradDiff = 0;
+        Dtype gradConvexEst = std::numeric_limits<Dtype>::max();
+        while(gradDiff < gradConvexEst) {
+            Dtype k = (1 + convexParam_ * A) / L;
+            ak = 1/L + std::sqrt(k * (k + 2));
+
+            // compute y
+            caffe_cpu_scale<Dtype>(N_, A / (A + ak), x, y);
+            caffe_axpy<Dtype>(N_, ak / (A + ak), v, y);
+
+            argMinGrapMap(L, y, t);
+
+            // grad
+            computeEnergyGradient_cpu(t, grad);
+
+            caffe_axpy<Dtype>(N_, -1, y, t);
+            gradDiff = -caffe_cpu_dot<Dtype>(N_, t, grad);
+            gradConvexEst = caffe_cpu_nrm2<Dtype>(N_, grad) / L;
+            if(gradDiff < gradConvexEst) {
+                L *= gammaU;
+            }
+        }
+
+        A += ak;
+        argMinGrapMap(L, y, x);
+        L /= gammaD;
+
+        // compute new v
+        argMinEstFun(L, ak, x, v);
+    }
+
+
+
+}
 
 template<typename Dtype>
 void SegmentationEnergy<Dtype>::timesHorizontalB_cpu(const Dtype* in, Dtype* out) const {

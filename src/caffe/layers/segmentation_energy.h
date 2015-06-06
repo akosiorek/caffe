@@ -25,11 +25,46 @@ public:
 //  CPU ========================================================================
 
     Dtype energy_cpu(const Dtype* indicatorValue) const;
-    void computeEnergyGradient_cpu(const Dtype* indicatorValue, Dtype* indicatorGrad) const;
+    void computeEnergyGradient_cpu(const Dtype* indicator, Dtype* grad) const;
+    void computeEnergyGradientPiecewise_cpu(const Dtype* indicator, Dtype* grad) const;
+
     // Gradient Descent
     void minimizeGD_cpu(Dtype *indicator) const;
     // Nesterov's Accelerated Gradient
     void minimizeNAG_cpu(Dtype *indicator) const;
+
+
+    // Nesterov's accelerated method for composite objective functions
+    void minimizeNCOBF_cpu(Dtype* indicator) const;
+
+    void argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const;
+    void argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const;
+
+    mutable Blob<Dtype> bufferArgMinGrapMap_;
+    mutable Blob<Dtype> bufferArgMinEstFuns_;
+    mutable Blob<Dtype> bufferNCOBF1_;
+    mutable Blob<Dtype> bufferNCOBF2_;
+
+    Dtype convexParam_;
+    Dtype initLipschnitzConstant_;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     void timesHorizontalB_cpu(const Dtype* f, Dtype* dx) const;
     void timesVerticalB_cpu(const Dtype* f, Dtype* dy) const;
     void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx) const;
@@ -48,6 +83,7 @@ public:
 
     void makeTriplesfromDiag(std::vector<Eigen::Triplet<Dtype>>& to, const Dtype* from, int xOffset, int yOffset, int N) const;
     SparseMatrixT convertHessianToEigenSparse() const;
+
 
 //  GPU ========================================================================
 

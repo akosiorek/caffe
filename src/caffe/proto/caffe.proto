@@ -728,7 +728,9 @@ message SegmentationParameter {
 	optional float smoothnes_eps = 5;
 	optional float minimization_iters = 6;
 	optional float step_size_decay = 7 [default = 1];
-	optional FillerParameter indicator_filler = 8;
+	optional float convex_param = 8;
+	optional float init_lipschitz_constant = 9;
+	optional FillerParameter indicator_filler = 10;
 }
 
 // DEPRECATED: use LayerParameter.

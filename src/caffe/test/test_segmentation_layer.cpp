@@ -101,7 +101,7 @@ TYPED_TEST(SegmentationLayerTest, ForwardTest) {
   ASSERT_LE(gradientNorm, 0.35);
 }
 
-TYPED_TEST(SegmentationLayerTest, GradientTest) {
+TYPED_TEST(SegmentationLayerTest, DISABLED_GradientTest) {
   typedef TypeParam Dtype;
 
   //only for doubles due to cancellation
