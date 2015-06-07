@@ -37,8 +37,8 @@ public:
     // Nesterov's accelerated method for composite objective functions
     void minimizeNCOBF_cpu(Dtype* indicator) const;
 
-    void argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const;
-    void argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const;
+    bool argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const;
+    bool argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const;
 
     mutable Blob<Dtype> bufferArgMinGrapMap_;
     mutable Blob<Dtype> bufferArgMinEstFuns_;
@@ -50,7 +50,7 @@ public:
 
     Dtype cubicRoot(Dtype x) const;
     std::array<std::complex<Dtype>, 3> cubicRoots(Dtype a, Dtype b, Dtype c, Dtype d) const;
-    void getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) const;
+    bool getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) const;
 
 
 

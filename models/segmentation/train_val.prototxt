@@ -99,8 +99,9 @@ layer {
     pad: 5
     kernel_size: 11
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -110,7 +111,7 @@ layer {
 }
 layer {
   name: "Urelu1"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Uconv1"
   top: "Uconv1"
 }
@@ -132,8 +133,9 @@ layer {
     pad: 4
     kernel_size: 9
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -143,7 +145,7 @@ layer {
 }
 layer {
   name: "Urelu2"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Uconv2"
   top: "Uconv2"
 }
@@ -165,8 +167,9 @@ layer {
     pad: 3
     kernel_size: 7
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -176,7 +179,7 @@ layer {
 }
 layer {
   name: "Urelu3"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Uconv3"
   top: "Uconv3"
 }
@@ -198,8 +201,9 @@ layer {
     pad: 2
     kernel_size: 5
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -209,7 +213,7 @@ layer {
 }
 layer {
   name: "Urelu4"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Uconv4"
   top: "Uconv4"
 }
@@ -231,8 +235,9 @@ layer {
     pad: 2
     kernel_size: 5
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -242,7 +247,7 @@ layer {
 }
 layer {
   name: "Urelu5"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Uconv5"
   top: "Uconv5"
 }
@@ -263,8 +268,9 @@ layer {
     num_output: 1
     kernel_size: 1
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -274,7 +280,7 @@ layer {
 }
 layer {
   name: "Urelu6"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Uconv6"
   top: "Uconv6"
 }
@@ -301,8 +307,9 @@ layer {
     pad: 5
     kernel_size: 11
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -312,7 +319,7 @@ layer {
 }
 layer {
   name: "Hrelu1"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Hconv1"
   top: "Hconv1"
 }
@@ -334,8 +341,9 @@ layer {
     pad: 4
     kernel_size: 9
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -345,7 +353,7 @@ layer {
 }
 layer {
   name: "Hrelu2"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Hconv2"
   top: "Hconv2"
 }
@@ -366,8 +374,9 @@ layer {
     num_output: 1
     kernel_size: 1
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -377,7 +386,7 @@ layer {
 }
 layer {
   name: "Hrelu3"
-  type: "ReLU"
+  type: "Exp"
   bottom: "Hconv3"
   top: "Hconv3"
 }
@@ -404,8 +413,9 @@ layer {
     pad: 5
     kernel_size: 11
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -415,7 +425,7 @@ layer {
 }
 layer {
   name: "Vrelu1"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Vconv1"
   top: "Vconv1"
 }
@@ -437,8 +447,9 @@ layer {
     pad: 4
     kernel_size: 9
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -448,7 +459,7 @@ layer {
 }
 layer {
   name: "Vrelu2"
-  type: "ReLU"
+  type: "TanH"
   bottom: "Vconv2"
   top: "Vconv2"
 }
@@ -469,8 +480,9 @@ layer {
     num_output: 1
     kernel_size: 1
     weight_filler {
-      type: "gaussian"
-      std: 0.01
+      type: "uniform"
+      min: -1
+      max: 1
     }
     bias_filler {
       type: "constant"
@@ -480,7 +492,7 @@ layer {
 }
 layer {
   name: "Vrelu3"
-  type: "ReLU"
+  type: "Exp"
   bottom: "Vconv3"
   top: "Vconv3"
 }
@@ -503,18 +515,24 @@ layer {
 
   segmentation_param {
     step_size: 1e-3
-    init_data_weight: 1
+    init_data_weight: 0.1
     log_barrier_weight: 1e-3
     min_grad_norm: 4
     smoothnes_eps: 1e-3
-    minimization_iters: 1e3
+    minimization_iters: 5
     step_size_decay: 1
-    convex_param: 1
-    init_lipschitz_constant: 1e2
+    convex_param: 0
+    init_lipschitz_constant: 1e1
 
     indicator_filler {
-      type: "constant"
-      value: 0.5
+      #type: "constant"
+      #value: 0.5
+      #type: "uniform"
+      #min: 0.1
+      #max: 0.9
+      type: "gaussian"
+      mean: 0.5
+      std: 0.05
     }
   }
 }
@@ -549,7 +567,7 @@ layer {
 
 layer {
   name: "loss"
-  type: "SoftmaxWithLoss"
+  type: "EuclideanLoss"
   bottom: "segmentation"
   bottom: "label"
   top: "loss"
