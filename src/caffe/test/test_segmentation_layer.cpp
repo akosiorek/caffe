@@ -34,10 +34,16 @@ class SegmentationLayerTest : public ::testing::Test {
 	  segmentationParam->set_smoothnes_eps(1e-3);
 	  segmentationParam->set_min_grad_norm(0);
 	  segmentationParam->set_step_size_decay(1);
+	  segmentationParam->set_convex_param(0);
+	  segmentationParam->set_init_lipschitz_constant(1);
+	
 	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
-	  filler->set_type("uniform");
-	  filler->set_min(0.1);
-	  filler->set_max(0.9);
+	  //filler->set_type("uniform");
+	  //filler->set_min(0.1);
+	  //filler->set_max(0.9);
+	  filler->set_type("gaussian");
+	  filler->set_mean(0.5);
+	  filler->set_std(0.05);
 
 	  layer = std::move(std::unique_ptr<SegmentationLayer<Dtype>>(new SegmentationLayer<Dtype>(layerParam)));
 
@@ -81,7 +87,7 @@ TYPED_TEST(SegmentationLayerTest, TestSetUp) {
   EXPECT_EQ(this->topBlob.width(), 3);
 }
 
-TYPED_TEST(SegmentationLayerTest, DISABLED_ForwardTest) {
+TYPED_TEST(SegmentationLayerTest, ForwardTest) {
   typedef TypeParam Dtype;
 
   this->layer->Forward(this->bottomVec, this->topVec);
@@ -90,7 +96,7 @@ TYPED_TEST(SegmentationLayerTest, DISABLED_ForwardTest) {
   const auto& energy = this->layer->getEnergy();
   // energy value
   auto energyValue = energy.energy_cpu(data);
-  ASSERT_LE(energyValue, 0.5);
+  ASSERT_LE(energyValue, 0.1);
 
 
   // energy gradient norm
@@ -99,9 +105,10 @@ TYPED_TEST(SegmentationLayerTest, DISABLED_ForwardTest) {
 //  LOG(ERROR) << "Gradient norm = " << gradientNorm;
 
   ASSERT_LE(gradientNorm, 0.35);
+  LOG(INFO) << energyValue << " " << gradientNorm;
 }
 
-TYPED_TEST(SegmentationLayerTest, DISABLED_GradientTest) {
+TYPED_TEST(SegmentationLayerTest, GradientTest) {
   typedef TypeParam Dtype;
 
   //only for doubles due to cancellation

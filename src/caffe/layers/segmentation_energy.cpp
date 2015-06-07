@@ -12,7 +12,7 @@
 #define LOG_FUN_END LOG(INFO) << "Finishing " << __FUNCTION__
 
 #else
-3
+
 #define LOG_FUN_START
 #define LOG_FUN_END
 
@@ -455,6 +455,7 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
         caffe_set<Dtype>(N_, 0, d);
     }
     Dtype newEnergy = energy_cpu(x);
+    Dtype firstEnergy = newEnergy;
     Dtype bestEnergy = newEnergy;
     caffe_copy<Dtype>(N_, x, bestX);
 
@@ -524,7 +525,7 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
     }
 
     caffe_copy<Dtype>(N_, bestX, x);
-    LOG(INFO) << "Minimized energy = " << bestEnergy;
+    LOG(INFO) << "Minimized energy = " << bestEnergy << " from " << firstEnergy;
 }
 
 template<typename Dtype>
