@@ -81,7 +81,7 @@ TYPED_TEST(SegmentationLayerTest, TestSetUp) {
   EXPECT_EQ(this->topBlob.width(), 3);
 }
 
-TYPED_TEST(SegmentationLayerTest, ForwardTest) {
+TYPED_TEST(SegmentationLayerTest, DISABLED_ForwardTest) {
   typedef TypeParam Dtype;
 
   this->layer->Forward(this->bottomVec, this->topVec);

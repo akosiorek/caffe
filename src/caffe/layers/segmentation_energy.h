@@ -48,7 +48,9 @@ public:
     Dtype convexParam_;
     Dtype initLipschnitzConstant_;
 
-
+    Dtype cubicRoot(Dtype x) const;
+    std::array<std::complex<Dtype>, 3> cubicRoots(Dtype a, Dtype b, Dtype c, Dtype d) const;
+    void getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) const;
 
 
 

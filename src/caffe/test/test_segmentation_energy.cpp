@@ -283,4 +283,57 @@ TYPED_TEST(SegmentationenergyTest, TestInvertedHessianVec_CPU) {
     ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
+
+TYPED_TEST(SegmentationenergyTest, cubicRootTest) {
+
+    std::vector<TypeParam> vals = {1, -1, 2, -2, 3, -3, 4, -4};
+    std::vector<TypeParam> results = {   1.000000000000000,
+                                         -1.000000000000000,
+                                        1.259921049894873,
+                                        -1.259921049894873,
+                                        1.442249570307408,
+                                        -1.442249570307408,
+                                        1.587401051968199,
+                                        -1.587401051968199};
+
+    for(int i = 0; i < vals.size(); ++i) {
+//            LOG(INFO) << vals[i] << "\t" << results[i];
+        ASSERT_NEAR(this->energy->cubicRoot(vals[i]), results[i], this->tolerance);
+    }
+}
+
+TYPED_TEST(SegmentationenergyTest, cubicRealRootsTest) {
+
+    using ComplexT = std::complex<TypeParam>;
+    using RootsT = std::array<ComplexT, 3>;
+
+    RootsT expected = {1, 0,   0.9309};
+
+    auto roots = this->energy->cubicRoots(-1.0000, 1.9309, -0.9309, 0);
+
+    for(int i = 0; i < 3; ++i) {
+        LOG(INFO) << roots[i] << "\t" << expected[i];
+        ASSERT_NEAR(roots[i].real(), expected[i].real(), this->tolerance);
+        ASSERT_NEAR(roots[i].imag(), expected[i].imag(), this->tolerance);
+    }
+}
+
+TYPED_TEST(SegmentationenergyTest, cubicImagRootsTest) {
+
+    using ComplexT = std::complex<TypeParam>;
+    using RootsT = std::array<ComplexT, 3>;
+
+    RootsT expected = { ComplexT(0.550068410523593, 0.000000000000000),
+                        ComplexT(0.224962395985682, +1.555925616061717),
+                        ComplexT(0.224962395985682, -1.555925616061717)};
+
+    auto roots = this->energy->cubicRoots(0.000735564, -0.000735559, 0.002, -0.001);
+
+    for(int i = 0; i < 3; ++i) {
+        LOG(INFO) << roots[i] << "\t" << expected[i];
+        ASSERT_NEAR(roots[i].real(), expected[i].real(), this->tolerance);
+        ASSERT_NEAR(roots[i].imag(), expected[i].imag(), this->tolerance);
+    }
+}
+
 }  // namespace caffe
