@@ -17,8 +17,12 @@ template<typename Dtype>
 void SegmentationLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
                                           const vector<Blob<Dtype>*>& top) {
 
-  for (int i = 0; i < bottom.size(); ++i) {
-    CHECK_EQ(bottom[i]->channels(), 1) << "Segmentation layer requiers a single channel input";
+  const auto* firstBottom = bottom[0];
+  for (const auto* b : bottom) {
+    CHECK_EQ(b->num(), 1) << "Batch processing not supported";
+    CHECK_EQ(b->channels(), 1) << "Segmentation layer requiers a single channel input";
+    CHECK_EQ(b->width(), firstBottom->width());
+    CHECK_EQ(b->height(), firstBottom->height());
   }
 
   const SegmentationParameter param = this->layer_param_.segmentation_param();
@@ -79,10 +83,8 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   Dtype* term1 = bufferBackwardProp_[1].mutable_cpu_data();
   Dtype* term2 = bufferBackwardProp_[1].mutable_cpu_diff();
 
-//  Forward_cpu(bottom, top);
-
   const Dtype* indicator = top[0]->cpu_data();
-  const Dtype* grad = top[0]->cpu_diff();
+  const Dtype* error = top[0]->cpu_diff();
 
   Dtype* unitGrad = bottom[0]->mutable_cpu_diff();
   Dtype* horizontalGrad = bottom[1]->mutable_cpu_diff();
@@ -92,8 +94,8 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   const Dtype* horizontal = bottom[1]->cpu_data();
   const Dtype* vertical = bottom[2]->cpu_data();
 
-//uniatary (1), needed anyway for gradient w.r.t. data weight
-  energy->invHessianVector_cpu(indicator, grad, unitGrad);
+//uniatary (1), needed anyway for grad w.r.t. data weight
+  energy->invHessianVector_cpu(indicator, error, unitGrad);
   caffe_scal<Dtype>(N_, -1, unitGrad);
 
   //TODO not checked in tests
@@ -104,7 +106,6 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   //horizontal
   if (propagate_down[1]) {
 
-    //TODO possible errors due to 0 padding; charbonnier introduces non-zero elements in padding
     energy->timesHorizontalB_cpu(indicator, bu);
     caffe_mul<Dtype>(N_, bu, horizontal, au);
 
@@ -114,17 +115,14 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, horizontal, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
-//
-//     caffe_mul<Dtype>(N_, horizontal, term2, term2);
 
-// Bh * (H^-1 * lossGrad)
+// Bh * (H^-1 * error)
     energy->timesHorizontalB_cpu(unitGrad, horizontalGrad);
     caffe_mul<Dtype>(N_, term2, horizontalGrad, horizontalGrad);
   }
 
   //vertical
   if (propagate_down[2]) {
-    //TODO possible errors due to 0 padding; charbonnier introduces non-zero elements in padding
     energy->timesVerticalB_cpu(indicator, bu);
     caffe_mul<Dtype>(N_, bu, vertical, au);
 
@@ -134,10 +132,8 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, vertical, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
-//
-//      caffe_mul<Dtype>(N_, vertical, term2, term2);
 
-// Bv * (H^-1 * lossGrad)
+// Bv * (H^-1 * error)
     energy->timesVerticalB_cpu(unitGrad, verticalGrad);
     caffe_mul<Dtype>(N_, term2, verticalGrad, verticalGrad);
   }
@@ -150,7 +146,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_set<Dtype>(N_, 0, unitGrad);
   }
 
-  LOG(ERROR) << "grad: " << vec2str(grad);
+  LOG(ERROR) << "error: " << vec2str(error);
   LOG(ERROR) << "ind:  " << vec2str(indicator);
   LOG(ERROR) << "unit: " << vec2str(unit);
   LOG(ERROR) << "hori: " << vec2str(horizontal);

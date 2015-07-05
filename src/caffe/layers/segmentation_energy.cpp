@@ -49,7 +49,7 @@ void SegmentationEnergy<Dtype>::reshape(int width, int height) {
     bufferResidualDirection_.Reshape(1, 1, height_, width_);
     bufferMatVecStorage_.Reshape(1, 1, height_, width_);
     bufferHessVec_.Reshape(1, 1, height_, width_);
-    bufferHessian_.Reshape(5, 1, height_, width_);
+    bufferHessian_.Reshape(3, 1, height_, width_);
     bufferNAG_.Reshape(1, 1, height_, width_);
 
     bufferArgMinGrapMap_.Reshape(4, 1, height_, width_);
@@ -586,18 +586,11 @@ void SegmentationEnergy<Dtype>::computeSparseHessian_cpu(const Dtype* indicator)
 
     Dtype* du = bufferHessian_.mutable_cpu_diff();
 
-    // super diagonals
-    Dtype* diagP2 = bufferHessian_.mutable_cpu_data();
-    Dtype* diagP1 = diagP2 + N_;
+    Dtype* diag = bufferHessian_.mutable_cpu_data();
+    Dtype* subdiag1 = diag + N_;
+    Dtype* subdiag2 = subdiag1 + N_;
 
-    // diag
-    Dtype* diag = diagP1 + N_;
-
-    // sub diagonals
-    Dtype* diagM1 = diag + N_;
-    Dtype* diagM2 = diagM1 + N_;
-
-    caffe_set<Dtype>(5 * N_, 0, diagP2);
+    caffe_set<Dtype>(3 * N_, 0, diag);
 
 // horizontal =========================
     caffe_set<Dtype>(N_, 0, du);
@@ -618,11 +611,8 @@ void SegmentationEnergy<Dtype>::computeSparseHessian_cpu(const Dtype* indicator)
         caffe_axpy<Dtype>(width_ - 1, 1, du + offset, diag + offset + 1);
     }
 
-    //superdiag
-    caffe_axpy<Dtype>(N_ - 1, -1, du, diagP1);
-
-    //subdiag
-    caffe_axpy<Dtype>(N_ - 1, -1, du, diagM1 + 1);
+    // subdiag1
+    caffe_axpy<Dtype>(N_ - 1, -1, du, subdiag1);
 
 //  vertical =======================================================
     caffe_set<Dtype>(N_, 0, du);
@@ -637,11 +627,9 @@ void SegmentationEnergy<Dtype>::computeSparseHessian_cpu(const Dtype* indicator)
     caffe_axpy<Dtype>(N_ - width_, 1, du, diag);
     caffe_axpy<Dtype>(N_ - width_, 1, du, diag + width_);
 
-    //superdiag
-    caffe_axpy<Dtype>(N_ - width_, -1, du, diagP2);
-//
-    //subdiag
-    caffe_axpy<Dtype>(N_ - width_, -1, du, diagM2 + width_);
+    // subdiag2
+    caffe_axpy<Dtype>(N_ - width_, -1, du, subdiag2);
+
 
 // log barrier =======================================================
     for(int i = 0; i < N_; ++i) {
@@ -821,17 +809,15 @@ auto SegmentationEnergy<Dtype>::convertHessianToEigenSparse() const -> SparseMat
   std::vector<Triplet<Dtype>> triplets;
   triplets.reserve(5 * N_ - 2 * (width_ + 1));
 
-  const Dtype *diagP2 = bufferHessian_.cpu_data();
-  const Dtype *diagP1 = diagP2 + N_;
-  const Dtype *diag = diagP1 + N_;
-  const Dtype *diagM1 = diag + N_;
-  const Dtype *diagM2 = diagM1 + N_;
+  const Dtype *diag = bufferHessian_.cpu_data();
+  const Dtype *subdiag1 = diag + N_;
+  const Dtype *subdiag2 = subdiag1 + N_;
 
-  makeTriplesfromDiag(triplets, diagM2 + width_, width_, 0, N_ - width_);
-  makeTriplesfromDiag(triplets, diagM1 + 1, 1, 0, N_ - 1);
+  makeTriplesfromDiag(triplets, subdiag2, 0, width_, N_ - width_);
+  makeTriplesfromDiag(triplets, subdiag1, 0, 1, N_ - 1);
   makeTriplesfromDiag(triplets, diag, 0, 0, N_);
-  makeTriplesfromDiag(triplets, diagP1, 0, 1, N_ - 1);
-  makeTriplesfromDiag(triplets, diagP2, 0, width_, N_ - width_);
+  makeTriplesfromDiag(triplets, subdiag1, 1, 0, N_ - 1);
+  makeTriplesfromDiag(triplets, subdiag2, width_, 0, N_ - width_);
 
   hessian.setFromTriplets(triplets.begin(), triplets.end());
   return hessian;

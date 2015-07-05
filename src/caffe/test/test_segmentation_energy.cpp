@@ -219,34 +219,24 @@ TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationNesterovAcceleratedGrad
 TYPED_TEST(SegmentationenergyTest, TestComputeSparseHessian_CPU) {
 
   // expected result
-  TypeParam diagP2[9] = {-1.59996160076799e-05,       -3.124882816162e-05,                         0
+  TypeParam subdiag2[9] = {-1.59996160076799e-05,       -3.124882816162e-05,                         0
                           -0.00199880059972013,      -0.00199880059972013,                         0
                            -3.124882816162e-05,     -1.59996160076799e-05,                         0};
 
-  TypeParam diagP1[9] = {-5.83083239199409e-06,     -1.59996160076798e-05,                         0,
+  TypeParam subdiag1[9] = {-5.83083239199409e-06,     -1.59996160076798e-05,                         0,
                          -0.000249962504686953,     -0.000249962504686953,                         0,
                          -1.59996160076799e-05,      -5.8308323919941e-06,                         0};
 
-  TypeParam diag0[9] =  {     26.5625218304484,          101.234620980511,          9.02979257799351,
+  TypeParam diag[9] =  {     26.5625218304484,          101.234620980511,          9.02979257799351,
                               13.1541922003621,           8.0005624226657,          13.1541922003621,
                                9.0297925779935,          101.234620980511,          26.5625218304484};
-
-  TypeParam diagM1[9] = {                    0,     -5.83083239199409e-06,     -1.59996160076798e-05,
-                                             0,     -0.000249962504686953,     -0.000249962504686953,
-                                             0,     -1.59996160076799e-05,      -5.8308323919941e-06};
-
-  TypeParam diagM2[9] = {                   0,                         0,                          0,
-                        -1.59996160076799e-05,       -3.124882816162e-05,       -0.00199880059972013,
-                         -0.00199880059972013,       -3.124882816162e-05,     -1.59996160076799e-05};
 
   this->energy->computeSparseHessian_cpu(this->indicator.data());
   const TypeParam* output = this->energy->bufferHessian_.cpu_data();
 
-  ASSERT_NEAR_VEC(output, diagP2, 9);
-  ASSERT_NEAR_VEC(output+9, diagP1, 9);
-  ASSERT_NEAR_VEC(output+18, diag0, 9);
-  ASSERT_NEAR_VEC(output+27, diagM1, 9);
-  ASSERT_NEAR_VEC(output+36, diagM2, 9);
+  ASSERT_NEAR_VEC(output, diag, 9);
+  ASSERT_NEAR_VEC(output+9, subdiag1, 9);
+  ASSERT_NEAR_VEC(output+18, subdiag2, 9);
 }
 
 //TYPED_TEST(SegmentationenergyTest, TestSparseHessianVec_CPU) {
