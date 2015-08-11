@@ -35,7 +35,7 @@ class SegmentationLayerTest : public ::testing::Test {
 	  segmentationParam->set_min_grad_norm(0);
 	  segmentationParam->set_step_size_decay(1);
 	  segmentationParam->set_convex_param(0);
-	  segmentationParam->set_init_lipschitz_constant(1);
+	  segmentationParam->set_init_lipschitz_constant(1e2);
 	
 	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
 	  //filler->set_type("uniform");
@@ -113,7 +113,7 @@ TYPED_TEST(SegmentationLayerTest, GradientTest) {
 
   //only for doubles due to cancellation
   if(sizeof(Dtype) == sizeof(double)) {
-  GradientChecker<Dtype> checker(1e-4, 1e-3);
+  GradientChecker<Dtype> checker(1e-2, 1e-3);
 //  checker.CheckGradientExhaustive(this->layer.get(), this->bottomVec, this->topVec);
   checker.CheckGradientSingle(this->layer.get(), this->bottomVec, this->topVec, 0, -1, 0);
   }

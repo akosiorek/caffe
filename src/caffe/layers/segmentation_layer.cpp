@@ -66,8 +66,11 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   //initialize segmentation
   indicatorFiller_->Fill(top[0]);
 //  energy->minimizeNAG_cpu(indicator);
-  energy->minimizeNCOBF_cpu(indicator);
+//  energy->minimizeNCOBF_cpu(indicator);
+//  energy->minimizeNewton(indicator);
+  energy->minimizeGradientMethod_cpu(indicator);
 }
+
 
 template<typename Dtype>
 void SegmentationLayer<Dtype>::Backward_cpu(

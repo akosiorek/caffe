@@ -33,10 +33,17 @@ public:
     // Nesterov's Accelerated Gradient
     void minimizeNAG_cpu(Dtype *indicator) const;
 
+    Dtype gradientIteration(Dtype* indicator, Dtype L) const;
+
+    void minimizeGradientMethod_cpu(Dtype* indicator) const;
+    void minimizeDualGradientMethod_cpu(Dtype* indicator) const;
 
     // Nesterov's accelerated method for composite objective functions
     void minimizeNCOBF_cpu(Dtype* indicator) const;
+    // Newton's iteration
+    void minimizeNewton(Dtype* indicator) const;
 
+    Dtype gradMapValue(Dtype L, const Dtype* x, const Dtype* y) const;
     bool argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const;
     bool argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const;
 
@@ -118,9 +125,9 @@ public:
 
 #include <sstream>
 template<typename Dtype>
-std::string vec2str(const Dtype* v) {
+std::string vec2str(const Dtype* v, int n = 9) {
     std::stringstream ss;
-    for(int i = 0; i < 9; ++i) {
+    for(int i = 0; i < n; ++i) {
         ss << v[i] << " ";
     }
     return ss.str();
