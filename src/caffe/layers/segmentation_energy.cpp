@@ -573,7 +573,7 @@ void SegmentationEnergy<Dtype>::minimizeDualGradientMethod_cpu(Dtype* v) const {
   delta_norm;
 
   // from 2nd iteration on
-  while(delta_norm > 1e-6 && energy < oldEnergy) {
+  while(delta_norm > 1e-5 && energy < oldEnergy) {
     caffe_copy<Dtype>(N_, y, oldY);
     oldEnergy = energy;
 
@@ -612,7 +612,9 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
     Dtype* y = bufferNCOBF1_.mutable_cpu_diff();
     Dtype* t = bufferNCOBF2_.mutable_cpu_data();
     Dtype* grad = bufferNCOBF2_.mutable_cpu_diff();
-    Dtype* bestX = bufferMinimization_.mutable_cpu_data();
+    Dtype* oldX = bufferMinimization_.mutable_cpu_data();
+    Dtype* delta = bufferMinimization_.mutable_cpu_diff();
+    Dtype delta_norm = std::numeric_limits<Dtype>::max();
 
     // init stuff
     Dtype L = initLipschnitzConstant_;
@@ -622,89 +624,61 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
 
     // intit coeffs for computing v
     {
-        Dtype *a = bufferArgMinEstFuns_.mutable_cpu_data();
-        Dtype *b = a + N_;
-        Dtype *c = b + N_;
-        Dtype *d = c + N_;
+      Dtype* estFunCoeffs = bufferArgMinEstFuns_.mutable_cpu_data();
 
-        caffe_set<Dtype>(N_, -1, a);
-        caffe_set<Dtype>(N_, 1, b);
-        caffe_axpy<Dtype>(N_, 1, x, b);
-        caffe_set<Dtype>(N_, 0, c);
-        caffe_set<Dtype>(N_, 0, d);
+      // initialize est fun coeffs
+      caffe_set<Dtype>(N_, 1, estFunCoeffs);
+      caffe_set<Dtype>(N_, -1, estFunCoeffs + N_);
+      caffe_axpy<Dtype>(N_, -1, x, estFunCoeffs + N_);
+      caffe_set<Dtype>(2 * N_, 0, estFunCoeffs + 2 * N_);
     }
-    Dtype newEnergy = energy_cpu(x);
-    Dtype firstEnergy = newEnergy;
-    Dtype bestEnergy = newEnergy;
-    caffe_copy<Dtype>(N_, x, bestX);
+    Dtype energy = energy_cpu(x);
 
-    int maxRepeats = 5;
-    int repeat = 0;
     int iter = 0;
-    LOG(INFO) << "Energy at iter #" << iter << " = " << newEnergy;
-//    LOG(INFO) << "L = " << L;
-//    for(; iter < minimizationIters_; ++iter) {
-     while(newEnergy < bestEnergy || repeat < maxRepeats) {
+    LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+    while(delta_norm > 1e-5) {
+      caffe_copy<Dtype>(N_, x, oldX);
 
-        Dtype gradDiff = 0;
-        Dtype gradConvexEst = std::numeric_limits<Dtype>::max();
-        bool validRoots = true;
-        while(gradDiff < gradConvexEst) {
-            Dtype k = (1 + convexParam_ * A) / L;
-            ak = 1/L + std::sqrt(k * (k + 2));
+      Dtype gradDiff = 0;
+      Dtype gradConvexEst = std::numeric_limits<Dtype>::max();
+      while(gradDiff < gradConvexEst) {
+        Dtype k = (1 + convexParam_ * A) / L;
+        ak = 1/L + std::sqrt(k * (k + 2));
 
-            // compute y
-            caffe_cpu_scale<Dtype>(N_, A / (A + ak), x, y);
-            caffe_axpy<Dtype>(N_, ak / (A + ak), v, y);
+        // compute y
+        caffe_cpu_scale<Dtype>(N_, A / (A + ak), x, y);
+        caffe_axpy<Dtype>(N_, ak / (A + ak), v, y);
 
-            // grad at gradMapMinimizer
-            validRoots = argMinGradMap(L, y, t);
-            if(!validRoots) {
-                break;
-            }
-            computeEnergyGradient_cpu(t, grad);
+        // grad at gradMapMinimizer
+        argMinGradMap(L, y, t);
+        computeEnergyGradient_cpu(t, grad);
 
-            caffe_axpy<Dtype>(N_, -1, y, t);
-            gradDiff = -caffe_cpu_dot<Dtype>(N_, t, grad);
-            gradConvexEst = caffe_cpu_nrm2<Dtype>(N_, grad);
-            gradConvexEst *= gradConvexEst  / L;
-            if(gradDiff < gradConvexEst) {
-                L *= gammaU;
-            }
-
+        caffe_axpy<Dtype>(N_, -1, y, t);
+        gradDiff = -caffe_cpu_dot<Dtype>(N_, t, grad);
+        gradConvexEst = caffe_cpu_nrm2<Dtype>(N_, grad);
+        gradConvexEst *= gradConvexEst  / L;
+        if(gradDiff < gradConvexEst) {
+            L *= gammaU;
         }
+      }
 
-         if(!validRoots) {
-             break;
-         }
+      A += ak;
+      argMinGradMap(L, y, x);
+      L /= gammaD;
 
-        A += ak;
-        if(!argMinGradMap(L, y, x)) {
-            break;
-        }
+      LOG(INFO) << "Energy at iter #" << ++iter << " = " << energy << " delta = " <<
+      delta_norm;
 
-        L /= gammaD;
-        LOG(INFO) << "L = " << L;
+      // compute new v
+      argMinEstFun(L, ak, x, v);
+//      caffe_copy<Dtype>(N_, v, x); // aha!
+      energy = energy_cpu(x);
 
-        LOG(INFO) << "Energy at iter #" << iter++ << " = " << energy_cpu(x);
-        // compute new v
-        if(!argMinEstFun(L, ak, x, v)) {
-            break;
-        }
-
-
-         newEnergy = energy_cpu(x);
-         if(newEnergy < bestEnergy) {
-             repeat = 0;
-             bestEnergy = newEnergy;
-             caffe_copy<Dtype>(N_, x, bestX);
-         } else {
-             ++repeat;
-         }
+      caffe_copy<Dtype>(N_, oldX, delta);
+      caffe_axpy<Dtype>(N_, -1, x, delta);
+      delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
     }
-
-    caffe_copy<Dtype>(N_, bestX, x);
-    LOG(INFO) << "Minimized energy = " << bestEnergy << " from " << firstEnergy;
+    LOG(INFO) << "Minimized energy = " << energy;
 
   LOG_FUN_END;
 }
