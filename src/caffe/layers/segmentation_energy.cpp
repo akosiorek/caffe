@@ -353,7 +353,7 @@ bool SegmentationEnergy<Dtype>::getValidRoots(int N, Dtype* a, Dtype* b, Dtype* 
             }
         }
         if(!set) {
-            LOG(WARNING) << "Only imaginary or invalid roots!\n"  \
+            LOG(FATAL) << "Only imaginary or invalid roots!\n"  \
                    << "iter: " << i << "\n" \
                    << "coeffs: " << a[i] << " " << b[i] << " " << c[i] << " " << d[i] << "\n" \
                    << "roots: " << roots[0] << " ," << roots[1] << " ," << roots[2];
@@ -365,7 +365,8 @@ bool SegmentationEnergy<Dtype>::getValidRoots(int N, Dtype* a, Dtype* b, Dtype* 
 }
 
 template<typename Dtype>
-bool SegmentationEnergy<Dtype>::argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const {
+bool SegmentationEnergy<Dtype>::argMinGradMap(Dtype L, const Dtype *y,
+                                              Dtype *argMin) const {
     LOG_FUN_START;
 
     Dtype* a = bufferArgMinGrapMap_.mutable_cpu_data();
@@ -373,31 +374,29 @@ bool SegmentationEnergy<Dtype>::argMinGrapMap(Dtype L, const Dtype* y, Dtype* ar
     Dtype* c = b + N_;
     Dtype* d = c + N_;
 
-    // save piecewiese energy gradient in c
-    computeEnergyGradientPiecewise_cpu(y, c);
+    // save piecewiese energy gradient in b
+    computeEnergyGradientPiecewise_cpu(y, b);
+    caffe_axpy<Dtype>(N_, -L, y, b);
+    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0], unitaryPotential_->cpu_data(), b);
 
     // a
-    caffe_set<Dtype>(N_, -L, a);
-    caffe_axpy<Dtype>(N_, -dataWeight_->cpu_data()[0], unitaryPotential_->cpu_data(), a);
+    caffe_set<Dtype>(N_, L, a);
 
     // b
-    caffe_set<Dtype>(N_, L, b);
-    caffe_axpy<Dtype>(N_, L, y, b);
-    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0], unitaryPotential_->cpu_data(), b);
-    caffe_axpy<Dtype>(N_, -1, c, b);
+    caffe_add_scalar<Dtype>(N_, -L, b);
 
     // c
-    caffe_axpy<Dtype>(N_, -L, y, c);
-    caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_, c);
+    caffe_set<Dtype>(N_, -2 * logBarrierWeight_ -L, c);
+    caffe_axpy<Dtype>(N_, -1, b, c);
 
     // d
-    caffe_set<Dtype>(N_, -logBarrierWeight_, d);
+    caffe_set<Dtype>(N_, logBarrierWeight_, d);
 
     return getValidRoots(N_, a, b, c, d, argMin);
 };
 
 template<typename Dtype>
-bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const {
+bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* v, Dtype* argMin) const {
     LOG_FUN_START;
 
     Dtype* a = bufferArgMinEstFuns_.mutable_cpu_data();
@@ -407,21 +406,35 @@ bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* y, 
 
     // update coefficients
 
-    // a
-    caffe_axpy<Dtype>(N_, -dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), a);
+//    // a
+//    caffe_axpy<Dtype>(N_, -dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), a);
+//
+//    // b
+//    computeEnergyGradientPiecewise_cpu(y, argMin);
+//    caffe_axpy<Dtype>(N_, -ak, argMin, b);
+//    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), b);
+//
+//    // c
+//    caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_ * ak, c);
+//
+//    // d
+//    caffe_add_scalar<Dtype>(N_, -logBarrierWeight_ * ak, d);
 
-    // b
-    computeEnergyGradientPiecewise_cpu(y, argMin);
-    caffe_axpy<Dtype>(N_, -ak, argMin, b);
-    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), b);
 
-    // c
-    caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_ * ak, c);
+  // a == 1 all the time, thus no update
+  // b
+  computeEnergyGradientPiecewise_cpu(v, argMin);
+  caffe_axpy<Dtype>(N_, this->dataWeight_->cpu_data()[0], unitaryPotential_->cpu_data(), argMin);
+  caffe_axpy<Dtype>(N_, ak, argMin, b);
 
-    // d
-    caffe_add_scalar<Dtype>(N_, -logBarrierWeight_ * ak, d);
+  // c
+  caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_, argMin);
+  caffe_axpy<Dtype>(N_, -ak, argMin, c);
 
-    return getValidRoots(N_, a, b, c, d, argMin);
+  // d
+  caffe_add_scalar<Dtype>(N_, + logBarrierWeight_ * ak, d);
+
+  return getValidRoots(N_, a, b, c, d, argMin);
 }
 
 
@@ -469,13 +482,13 @@ Dtype SegmentationEnergy<Dtype>::gradientIteration(Dtype* indicator, Dtype L) co
 
   Dtype* argMin = bufferNCOBF2_.mutable_cpu_data();
 
-  this->argMinGrapMap(L, indicator, argMin);
+  this->argMinGradMap(L, indicator, argMin);
   Dtype gradMap = gradMapValue(L, indicator, argMin);
   Dtype energy = energy_cpu(argMin);
   L = L / 2;
   while(energy > gradMap) {
     L = L * 2;
-    this->argMinGrapMap(L, indicator, argMin);
+    this->argMinGradMap(L, indicator, argMin);
     gradMap = gradMapValue(L, indicator, argMin);
     energy = energy_cpu(argMin);
   }
@@ -494,11 +507,10 @@ void SegmentationEnergy<Dtype>::minimizeGradientMethod_cpu(Dtype* indicator) con
     Dtype energy = this->energy_cpu(indicator);
     Dtype* oldIndicator = bufferNCOBF1_.mutable_cpu_data();
     Dtype* diffIndicator = bufferNCOBF1_.mutable_cpu_diff();
-//  Reshape(1, 1, height_, width_);
 
   int iter = 0;
   LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-  while(delta > 1e-6) {// && energy < oldEnergy) {
+  while(delta > 1e-14) {// && energy < oldEnergy) {
     caffe_copy<Dtype>(N_, indicator, oldIndicator);
     oldEnergy = energy;
 
@@ -515,16 +527,77 @@ void SegmentationEnergy<Dtype>::minimizeGradientMethod_cpu(Dtype* indicator) con
     ++iter;
     LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " << delta;
   }
-//  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-
-
+  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
   LOG_FUN_END;
 }
 
 template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimizeDualGradientMethod_cpu(Dtype* indicator) const {
+void SegmentationEnergy<Dtype>::minimizeDualGradientMethod_cpu(Dtype* v) const {
   LOG_FUN_START;
 
+  Dtype L = this->initLipschnitzConstant_;
+  Dtype delta_norm = std::numeric_limits<Dtype>::max();
+  Dtype oldEnergy = std::numeric_limits<Dtype>::max();
+  Dtype energy = this->energy_cpu(v);
+
+  Dtype* y = bufferNCOBF1_.mutable_cpu_data();
+  Dtype* oldY = bufferNCOBF1_.mutable_cpu_diff();
+  Dtype* delta = bufferNCOBF2_.mutable_cpu_data();
+  Dtype* estFunCoeffs = bufferArgMinEstFuns_.mutable_cpu_data();
+
+  // initialize est fun coeffs
+  caffe_set<Dtype>(N_, 1, estFunCoeffs);
+  caffe_set<Dtype>(N_, -1, estFunCoeffs + N_);
+  caffe_axpy<Dtype>(N_, -1, v, estFunCoeffs + N_);
+  caffe_set<Dtype>(2 * N_, 0, estFunCoeffs + 2 * N_);
+
+  int iter = 0;
+  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+
+
+  caffe_copy<Dtype>(N_, v, oldY);
+  // first iteration is a little different, sinc v == v0
+  caffe_copy<Dtype>(N_, v, y);
+  Dtype M = gradientIteration(y, L);
+  L = std::max(this->initLipschnitzConstant_, M / 2);
+
+
+  oldEnergy = energy;
+  energy = this->energy_cpu(y);
+  caffe_copy<Dtype>(N_, y, delta);
+  caffe_axpy<Dtype>(N_, -1, oldY, delta);
+  delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
+
+  ++iter;
+  LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " <<
+  delta_norm;
+
+  // from 2nd iteration on
+  while(delta_norm > 1e-6 && energy < oldEnergy) {
+    caffe_copy<Dtype>(N_, y, oldY);
+    oldEnergy = energy;
+
+//    v = arg min psi()
+    argMinEstFun(L, 1/M, y, v);
+    caffe_copy<Dtype>(N_, v, y);
+    M = gradientIteration(y, L);
+    L = std::max(this->initLipschnitzConstant_, M / 2);
+
+
+
+    // compute delta
+    caffe_copy<Dtype>(N_, y, delta);
+    caffe_axpy<Dtype>(N_, -1, oldY, delta);
+    delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
+
+    energy = this->energy_cpu(y);
+
+    ++iter;
+    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " <<
+                                                                  delta_norm;
+  }
+  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+  caffe_copy<Dtype>(N_, y, v);
   LOG_FUN_END;
 }
 
@@ -585,7 +658,7 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
             caffe_axpy<Dtype>(N_, ak / (A + ak), v, y);
 
             // grad at gradMapMinimizer
-            validRoots = argMinGrapMap(L, y, t);
+            validRoots = argMinGradMap(L, y, t);
             if(!validRoots) {
                 break;
             }
@@ -606,7 +679,7 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
          }
 
         A += ak;
-        if(!argMinGrapMap(L, y, x)) {
+        if(!argMinGradMap(L, y, x)) {
             break;
         }
 

@@ -36,7 +36,7 @@ public:
     Dtype gradientIteration(Dtype* indicator, Dtype L) const;
 
     void minimizeGradientMethod_cpu(Dtype* indicator) const;
-    void minimizeDualGradientMethod_cpu(Dtype* indicator) const;
+    void minimizeDualGradientMethod_cpu(Dtype*v) const;
 
     // Nesterov's accelerated method for composite objective functions
     void minimizeNCOBF_cpu(Dtype* indicator) const;
@@ -44,8 +44,8 @@ public:
     void minimizeNewton(Dtype* indicator) const;
 
     Dtype gradMapValue(Dtype L, const Dtype* x, const Dtype* y) const;
-    bool argMinGrapMap(Dtype L, const Dtype* y, Dtype* argMin) const;
-    bool argMinEstFun(Dtype L, Dtype ak, const Dtype* y, Dtype* argMin) const;
+    bool argMinGradMap(Dtype L, const Dtype *y, Dtype *argMin) const;
+    bool argMinEstFun(Dtype L, Dtype ak, const Dtype*v, Dtype* argMin) const;
 
     mutable Blob<Dtype> bufferArgMinGrapMap_;
     mutable Blob<Dtype> bufferArgMinEstFuns_;

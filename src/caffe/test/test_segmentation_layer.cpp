@@ -34,8 +34,8 @@ class SegmentationLayerTest : public ::testing::Test {
 	  segmentationParam->set_smoothnes_eps(1e-3);
 	  segmentationParam->set_min_grad_norm(0);
 	  segmentationParam->set_step_size_decay(1);
-	  segmentationParam->set_convex_param(0);
-	  segmentationParam->set_init_lipschitz_constant(1e2);
+	  segmentationParam->set_convex_param(1e1);
+	  segmentationParam->set_init_lipschitz_constant(1e4);
 	
 	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
 	  //filler->set_type("uniform");
