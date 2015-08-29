@@ -14,125 +14,136 @@ namespace caffe {
 
 template<typename Dtype>
 class SegmentationEnergy {
- public:
+public:
   typedef Eigen::SparseMatrix<Dtype, Eigen::RowMajor> SparseMatrixT;
 public:
 
-    SegmentationEnergy(const SegmentationParameter& param, shared_ptr<Blob<Dtype>> dataWeight);
-    void reshape(int width, int height);
-    void setData(const Blob<Dtype>* unit, const Blob<Dtype>* horizontal, const Blob<Dtype>* vertical);
+  SegmentationEnergy(const SegmentationParameter &param,
+                     shared_ptr<Blob<Dtype>> dataWeight);
+
+  void reshape(int width, int height);
+
+  void setData(const Blob<Dtype> *unit, const Blob<Dtype> *horizontal,
+               const Blob<Dtype> *vertical);
 
 //  CPU ========================================================================
 
-    Dtype energy_cpu(const Dtype* indicatorValue) const;
-    void computeEnergyGradient_cpu(const Dtype* indicator, Dtype* grad) const;
-    void computeEnergyGradientPiecewise_cpu(const Dtype* indicator, Dtype* grad) const;
+  Dtype energy_cpu(const Dtype *indicatorValue) const;
 
-    // Gradient Descent
-    void minimizeGD_cpu(Dtype *indicator) const;
-    // Nesterov's Accelerated Gradient
-    void minimizeNAG_cpu(Dtype *indicator) const;
+  void computeEnergyGradient_cpu(const Dtype *indicator, Dtype *grad) const;
 
-    Dtype gradientIteration(Dtype* indicator, Dtype L) const;
+  void computeEnergyGradientPiecewise_cpu(const Dtype *indicator,
+                                          Dtype *grad) const;
 
-    void minimizeGradientMethod_cpu(Dtype* indicator) const;
-    void minimizeDualGradientMethod_cpu(Dtype*v) const;
+  Dtype gradientIteration(Dtype *indicator, Dtype L) const;
 
-    // Nesterov's accelerated method for composite objective functions
-    void minimizeNCOBF_cpu(Dtype* indicator) const;
-    // Newton's iteration
-    void minimizeNewton(Dtype* indicator) const;
+  // Nesterov's accelerated method for composite objective functions
+  void minimizeNCOBF_cpu(Dtype *indicator) const;
 
-    Dtype gradMapValue(Dtype L, const Dtype* x, const Dtype* y) const;
-    bool argMinGradMap(Dtype L, const Dtype *y, Dtype *argMin) const;
-    bool argMinEstFun(Dtype L, Dtype ak, const Dtype*v, Dtype* argMin) const;
+  Dtype gradMapValue(Dtype L, const Dtype *x, const Dtype *y) const;
 
-    mutable Blob<Dtype> bufferArgMinGrapMap_;
-    mutable Blob<Dtype> bufferArgMinEstFuns_;
-    mutable Blob<Dtype> bufferNCOBF1_;
-    mutable Blob<Dtype> bufferNCOBF2_;
+  bool argMinGradMap(Dtype L, const Dtype *y, Dtype *argMin) const;
 
-    Dtype convexParam_;
-    Dtype initLipschnitzConstant_;
+  bool argMinEstFun(Dtype L, Dtype ak, const Dtype *v, Dtype *argMin) const;
 
-    Dtype cubicRoot(Dtype x) const;
-    std::array<std::complex<Dtype>, 3> cubicRoots(Dtype a, Dtype b, Dtype c, Dtype d) const;
-    bool getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) const;
+  Dtype cubicRoot(Dtype x) const;
 
+  std::array <std::complex<Dtype>, 3> cubicRoots(Dtype a, Dtype b, Dtype c,
+                                                 Dtype d) const;
 
+  bool getValidRoots(int N, Dtype *a, Dtype *b, Dtype *c, Dtype *d,
+                     Dtype *result) const;
 
+  void timesHorizontalB_cpu(const Dtype *f, Dtype *dx) const;
 
+  void timesVerticalB_cpu(const Dtype *f, Dtype *dy) const;
 
+  void timesHorizontalBt_cpu(const Dtype *grad, Dtype *diffDx) const;
 
+  void timesVerticalBt_cpu(const Dtype *grad, Dtype *diffDy) const;
 
+  void computeSparseHessian_cpu(const Dtype *indicator) const;
 
+  void invHessianVector_cpu(const Dtype *indicator, const Dtype *vec,
+                            Dtype *iHv) const;
 
+  void charbonnierD1_cpu(const Dtype *source, Dtype *dest) const;
 
+  void charbonnierD2_cpu(const Dtype *source, Dtype *dest) const;
 
+  void zeroLastRow_cpu(Dtype *v) const;
 
+  void zeroLastColumn_cpu(Dtype *v) const;
 
+  void makeTriplesfromDiag(std::vector<Eigen::Triplet<Dtype>> &to,
+                           const Dtype *from, int xOffset, int yOffset,
+                           int N) const;
 
-
-
-    void timesHorizontalB_cpu(const Dtype* f, Dtype* dx) const;
-    void timesVerticalB_cpu(const Dtype* f, Dtype* dy) const;
-    void timesHorizontalBt_cpu(const Dtype* grad, Dtype* diffDx) const;
-    void timesVerticalBt_cpu(const Dtype* grad, Dtype* diffDy) const;
-
-    void computeSparseHessian_cpu(const Dtype* indicator) const;
-//    void sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out) const;
-//    void approxHessVec_cpu(const Dtype* indicator, const Dtype* vec, Dtype* Hv) const;
-    void invHessianVector_cpu(const Dtype* indicator, const Dtype* vec,
-                              Dtype* iHv) const;
-
-    void charbonnierD1_cpu(const Dtype* source, Dtype* dest) const;
-    void charbonnierD2_cpu(const Dtype* source, Dtype* dest) const;
-    void zeroLastRow_cpu(Dtype* v) const;
-    void zeroLastColumn_cpu(Dtype* v) const;
-
-    void makeTriplesfromDiag(std::vector<Eigen::Triplet<Dtype>>& to, const Dtype* from, int xOffset, int yOffset, int N) const;
-    SparseMatrixT convertHessianToEigenSparse() const;
+  SparseMatrixT convertHessianToEigenSparse() const;
 
 
 //  GPU ========================================================================
 
 //  Params ========================================================================
 
-    int width_;
-    int height_;
-    int N_;
+  int width_;
+  int height_;
+  int N_;
 
-    Dtype stepSize_;
-    int minimizationIters_;
-    Dtype logBarrierWeight_;
-    Dtype smoothnesEps_;
-    Dtype minGradNorm_;
-    Dtype stepSizeDecay_;
+  int minimizationIters_;
+  Dtype logBarrierWeight_;
+  Dtype smoothnesEps_;
+  Dtype minUpdateNorm_;
 
-    shared_ptr<Blob<Dtype>> dataWeight_;
-    const Blob<Dtype>* unitaryPotential_;
-    const Blob<Dtype>* horizontalPotential_;
-    const Blob<Dtype>* verticalPotential_;
+  shared_ptr<Blob<Dtype>> dataWeight_;
+  const Blob<Dtype> *unitaryPotential_;
+  const Blob<Dtype> *horizontalPotential_;
+  const Blob<Dtype> *verticalPotential_;
 
-    mutable Blob<Dtype> bufferEnergyGrad_;
-    mutable Blob<Dtype> bufferMinimization_;
-    mutable Blob<Dtype> bufferResidualDirection_;
-    mutable Blob<Dtype> bufferMatVecStorage_;
-    mutable Blob<Dtype> bufferHessVec_;
-    mutable Blob<Dtype> bufferHessian_;
-    mutable Blob<Dtype> bufferNAG_;
+  mutable Blob<Dtype> bufferEnergyGrad_;
+  mutable Blob<Dtype> bufferMinimization_;
+
+  mutable Blob<Dtype> bufferHessian_;
+
+  mutable Blob<Dtype> bufferArgMinGrapMap_;
+  mutable Blob<Dtype> bufferArgMinEstFuns_;
+  mutable Blob<Dtype> bufferNCOBF1_;
+  mutable Blob<Dtype> bufferNCOBF2_;
+
+  Dtype convexParam_;
+  Dtype initLipschnitzConstant_;
 };
 
 #include <sstream>
+
 template<typename Dtype>
-std::string vec2str(const Dtype* v, int n = 9) {
-    std::stringstream ss;
-    for(int i = 0; i < n; ++i) {
-        ss << v[i] << " ";
-    }
-    return ss.str();
+std::string vec2str(const Dtype *v, int n = 9) {
+  std::stringstream ss;
+  for (int i = 0; i < n; ++i) {
+    ss << v[i] << " ";
+  }
+  return ss.str();
 }
 
 }  // namespace caffe
 
 #endif //CAFFE_SEGMENTATION_ENERGY_H
+
+//// Gradient Descent
+//void minimizeGD_cpu(Dtype * indicator) const;
+//// Nesterov's Accelerated Gradient
+//void minimizeNAG_cpu(Dtype * indicator) const;
+//void minimizeGradientMethod_cpu(Dtype * indicator) const;
+//void minimizeDualGradientMethod_cpu(Dtype * v) const;
+//// Newton's iteration
+//void minimizeNewton(Dtype * indicator) const;
+//
+//void sparseHessianMultiply_cpu(const Dtype *vec, Dtype *out) const;
+//
+//void approxHessVec_cpu(const Dtype *indicator, const Dtype *vec,
+//                       Dtype *Hv) const;
+//
+//mutable Blob<Dtype> bufferResidualDirection_;
+//mutable Blob<Dtype> bufferMatVecStorage_;
+//mutable Blob<Dtype> bufferHessVec_;
+//mutable Blob<Dtype> bufferNAG_;

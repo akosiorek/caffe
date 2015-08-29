@@ -62,13 +62,8 @@ void SegmentationLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
   Dtype* indicator = top[0]->mutable_cpu_data();
   this->energy->setData(bottom[0], bottom[1], bottom[2]);
-
-  //initialize segmentation
   indicatorFiller_->Fill(top[0]);
-//  energy->minimizeNAG_cpu(indicator);
   energy->minimizeNCOBF_cpu(indicator);
-//  energy->minimizeNewton(indicator);
-//  energy->minimizeDualGradientMethod_cpu(indicator);
 }
 
 
@@ -153,15 +148,15 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_set<Dtype>(N_, 0, unitGrad);
   }
 
-  LOG(ERROR) << "grad: " << vec2str(grad);
-  LOG(ERROR) << "ind:  " << vec2str(indicator);
-  LOG(ERROR) << "unit: " << vec2str(unit);
-  LOG(ERROR) << "hori: " << vec2str(horizontal);
-  LOG(ERROR) << "vert: " << vec2str(vertical);
-
-  LOG(ERROR) << "unitGrad: " << vec2str(unitGrad);
-  LOG(ERROR) << "horiGrad: " << vec2str(horizontalGrad);
-  LOG(ERROR) << "vertGrad: " << vec2str(verticalGrad);
+//  LOG(ERROR) << "grad: " << vec2str(grad);
+//  LOG(ERROR) << "ind:  " << vec2str(indicator);
+//  LOG(ERROR) << "unit: " << vec2str(unit);
+//  LOG(ERROR) << "hori: " << vec2str(horizontal);
+//  LOG(ERROR) << "vert: " << vec2str(vertical);
+//
+//  LOG(ERROR) << "unitGrad: " << vec2str(unitGrad);
+//  LOG(ERROR) << "horiGrad: " << vec2str(horizontalGrad);
+//  LOG(ERROR) << "vertGrad: " << vec2str(verticalGrad);
 }
 
 

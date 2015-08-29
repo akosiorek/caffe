@@ -34,9 +34,9 @@ struct tolerance_trait<float> {
 
 
 template <typename Dtype>
-class SegmentationenergyTest : public ::testing::Test {
+class SegmentationEnergyTest : public ::testing::Test {
  protected:
-  SegmentationenergyTest()
+  SegmentationEnergyTest()
  	 : tolerance(tolerance_trait<Dtype>::tol),
  	   //magic(3)/10
  	   indicator({ 0.8000,    0.1000,    0.6000,
@@ -49,11 +49,12 @@ class SegmentationenergyTest : public ::testing::Test {
     this->reshape(1, 1, 3, 3);
     this->setPotentials(0.5);
 
-	  segmentationParam.set_step_size(0.001);
-	  segmentationParam.set_minimization_iters(10);
+	  segmentationParam.set_minimization_iters(1);
 	  segmentationParam.set_init_data_weight(1);
 	  segmentationParam.set_log_barrier_weight(1);
 	  segmentationParam.set_smoothnes_eps(1e-3);
+    segmentationParam.set_convex_param(1e1);
+    segmentationParam.set_init_lipschitz_constant(1e4);
 
 	  // init data weight
 	  *dataWeight->mutable_cpu_data() = 1;
@@ -97,11 +98,11 @@ public:
   std::unique_ptr<SegmentationEnergy<Dtype>> energy;
 };
 
-TYPED_TEST_CASE(SegmentationenergyTest, TestDtypes);
-//TYPED_TEST_CASE(SegmentationenergyTest, ::testing::Types<double>);
+TYPED_TEST_CASE(SegmentationEnergyTest, TestDtypes);
+//TYPED_TEST_CASE(SegmentationEnergyTest, ::testing::Types<double>);
 
 
-TYPED_TEST(SegmentationenergyTest, TestTimesHorizontalB_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestTimesHorizontalB_CPU) {
   static const TypeParam result[9] = { .7,    -.5,     .0,
                                       -.2,    -.2,     .0,
                                       -.5,     .7,     .0};
@@ -110,7 +111,7 @@ TYPED_TEST(SegmentationenergyTest, TestTimesHorizontalB_CPU) {
   ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
-TYPED_TEST(SegmentationenergyTest, TestTimesVerticalB_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestTimesVerticalB_CPU) {
   static const TypeParam result[9] = { .5,    -.4,     -.1,
                                       -.1,    -.4,     .5,
                                       .0,     .0,     .0};
@@ -120,7 +121,7 @@ TYPED_TEST(SegmentationenergyTest, TestTimesVerticalB_CPU) {
   ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
-TYPED_TEST(SegmentationenergyTest, TestTimesHorizontalBt_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestTimesHorizontalBt_CPU) {
   static const TypeParam result[9] = { .8,    -.7,     -.1,
                                       .3,    .2,     -.5,
                                       .4,     .5,     -.9};
@@ -130,7 +131,7 @@ TYPED_TEST(SegmentationenergyTest, TestTimesHorizontalBt_CPU) {
   ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
-TYPED_TEST(SegmentationenergyTest, TestTimesVerticalBt_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestTimesVerticalBt_CPU) {
   static const TypeParam result[9] = { .8,    .1,     .6,
                                       -.5,    .4,     .1,
                                       -.3,     -.5,     -.7};
@@ -139,14 +140,14 @@ TYPED_TEST(SegmentationenergyTest, TestTimesVerticalBt_CPU) {
   ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
-TYPED_TEST(SegmentationenergyTest, TestEnergy_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestEnergy_CPU) {
 
     const TypeParam expected = 20.4989225685541;
     TypeParam energy = this->energy->energy_cpu(this->indicator.data());
     ASSERT_NEAR(energy, expected, this->tolerance);
 }
 
-TYPED_TEST(SegmentationenergyTest, TestEnergyGradient_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestEnergyGradient_CPU) {
   static const TypeParam result[9] = { 5.24999395924417,         -9.88887659825024,          1.33342930339133,
                                       -2.90463293667475,                       0.5,          3.90463293667475,
                                       -0.333429303391329,          10.8888765982502,         -4.24999395924417};
@@ -155,12 +156,12 @@ TYPED_TEST(SegmentationenergyTest, TestEnergyGradient_CPU) {
   ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
-TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationGradientDescent_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationNCBOF_CPU) {
 
     TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
     TypeParam energyAfter = 0;
     for(int i = 0; i < 10; ++i) {
-      this->energy->minimizeGD_cpu(this->indicator.data());
+      this->energy->minimizeNCOBF_cpu(this->indicator.data());
 
       energyAfter = this->energy->energy_cpu(this->indicator.data());
       ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
@@ -168,22 +169,35 @@ TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationGradientDescent_CPU) {
     }
 }
 
-TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationNesterovAcceleratedGradient_CPU) {
-
-    TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
-    TypeParam energyAfter = 0;
-
-    for(int i = 0; i < 10; ++i) {
-      this->energy->minimizeNAG_cpu(this->indicator.data());
-
-      energyAfter = this->energy->energy_cpu(this->indicator.data());
-      ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
-      energyBefore = energyAfter;
-    }
-}
-
+//TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationGradientDescent_CPU) {
+//
+//    TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
+//    TypeParam energyAfter = 0;
+//    for(int i = 0; i < 10; ++i) {
+//      this->energy->minimizeGD_cpu(this->indicator.data());
+//
+//      energyAfter = this->energy->energy_cpu(this->indicator.data());
+//      ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
+//      energyBefore = energyAfter;
+//    }
+//}
+//
+//TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationNesterovAcceleratedGradient_CPU) {
+//
+//    TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
+//    TypeParam energyAfter = 0;
+//
+//    for(int i = 0; i < 10; ++i) {
+//      this->energy->minimizeNAG_cpu(this->indicator.data());
+//
+//      energyAfter = this->energy->energy_cpu(this->indicator.data());
+//      ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
+//      energyBefore = energyAfter;
+//    }
+//}
+//
 //// tests finite-difference hessian-vec approximation
-//TYPED_TEST(SegmentationenergyTest, TestApproxHessianVec_CPU) {
+//TYPED_TEST(SegmentationEnergyTest, TestApproxHessianVec_CPU) {
 //
 //    TypeParam result[9] = { 0.0748398918926085,         0.861344049711832,        0.0599899557474082,
 //                            0.0733492169024963,        0.0506015600298948,        0.0434338498878084,
@@ -200,7 +214,7 @@ TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationNesterovAcceleratedGrad
 //    ASSERT_NEAR_VEC_WTOL(this->output.data(), result, 9, this->tolerance * 1e3);
 //}
 
-//TYPED_TEST(SegmentationenergyTest, TestSparseHessianMultiply_CPU) {
+//TYPED_TEST(SegmentationEnergyTest, TestSparseHessianMultiply_CPU) {
 //
 //  TypeParam result[9] = {0.7656, 1.2851, 1.4304, 0.5353, 1.4780, 0.8212, 0.7067, 0.9554, 0.6005};
 //  TypeParam diags[45] = { 0.01,    0.96,    0.12,    0.31,    0.24,    0.35,       0,       0,       0,
@@ -216,7 +230,7 @@ TYPED_TEST(SegmentationenergyTest, TestEnergyMinimizationNesterovAcceleratedGrad
 //  ASSERT_NEAR_VEC(this->output.data(), result, 9);
 //}
 
-TYPED_TEST(SegmentationenergyTest, TestComputeSparseHessian_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestComputeSparseHessian_CPU) {
 
   // expected result
   TypeParam diagP2[9] = {-1.59996160076799e-05,       -3.124882816162e-05,                         0
@@ -249,7 +263,7 @@ TYPED_TEST(SegmentationenergyTest, TestComputeSparseHessian_CPU) {
   ASSERT_NEAR_VEC(output+36, diagM2, 9);
 }
 
-//TYPED_TEST(SegmentationenergyTest, TestSparseHessianVec_CPU) {
+//TYPED_TEST(SegmentationEnergyTest, TestSparseHessianVec_CPU) {
 //
 //  TypeParam finiteDifferenceApprox[9];
 //
@@ -264,7 +278,7 @@ TYPED_TEST(SegmentationenergyTest, TestComputeSparseHessian_CPU) {
 //}
 
 // TODO investigate low accuracy
-TYPED_TEST(SegmentationenergyTest, TestInvertedHessianVec_CPU) {
+TYPED_TEST(SegmentationEnergyTest, TestInvertedHessianVec_CPU) {
 
     TypeParam result[9] = {  0.010541195298312,   0.008396373528090,   0.073096950778843,
         0.042580557763648,   0.078746629897254,   0.025099691288882,
@@ -284,7 +298,7 @@ TYPED_TEST(SegmentationenergyTest, TestInvertedHessianVec_CPU) {
 }
 
 
-TYPED_TEST(SegmentationenergyTest, cubicRootTest) {
+TYPED_TEST(SegmentationEnergyTest, cubicRootTest) {
 
     std::vector<TypeParam> vals = {1, -1, 2, -2, 3, -3, 4, -4};
     std::vector<TypeParam> results = {   1.000000000000000,
@@ -302,7 +316,7 @@ TYPED_TEST(SegmentationenergyTest, cubicRootTest) {
     }
 }
 
-TYPED_TEST(SegmentationenergyTest, cubicRealRootsTest) {
+TYPED_TEST(SegmentationEnergyTest, cubicRealRootsTest) {
 
     using ComplexT = std::complex<TypeParam>;
     using RootsT = std::array<ComplexT, 3>;
@@ -318,7 +332,7 @@ TYPED_TEST(SegmentationenergyTest, cubicRealRootsTest) {
     }
 }
 
-TYPED_TEST(SegmentationenergyTest, cubicImagRootsTest) {
+TYPED_TEST(SegmentationEnergyTest, cubicImagRootsTest) {
 
     using ComplexT = std::complex<TypeParam>;
     using RootsT = std::array<ComplexT, 3>;

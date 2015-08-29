@@ -721,16 +721,14 @@ message WindowDataParameter {
 }
 
 message SegmentationParameter {
-	optional float step_size = 1;
-	optional float init_data_weight = 2;
-	optional float log_barrier_weight = 3;
-	optional float min_grad_norm = 4 [default = 1];
-	optional float smoothnes_eps = 5;
-	optional float minimization_iters = 6;
-	optional float step_size_decay = 7 [default = 1];
-	optional float convex_param = 8;
-	optional float init_lipschitz_constant = 9;
-	optional FillerParameter indicator_filler = 10;
+	optional float init_data_weight = 1;
+	optional float log_barrier_weight = 2;
+	optional float smoothnes_eps = 3;
+	optional float minimization_iters = 4;
+	optional float convex_param = 5;
+	optional float init_lipschitz_constant = 6;
+	optional FillerParameter indicator_filler = 7;
+	optional float min_update_norm = 8;
 }
 
 // DEPRECATED: use LayerParameter.

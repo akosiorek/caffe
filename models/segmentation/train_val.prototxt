@@ -514,25 +514,25 @@ layer {
   }
 
   segmentation_param {
-    step_size: 1e-3
-    init_data_weight: 0.1
+
+    init_data_weight: 1
     log_barrier_weight: 1e-3
-    min_grad_norm: 4
     smoothnes_eps: 1e-3
-    minimization_iters: 5
-    step_size_decay: 1
-    convex_param: 0
-    init_lipschitz_constant: 1e1
+
+    minimization_iters: 1000
+    min_update_norm: 1e-3
+    convex_param: 1e0
+    init_lipschitz_constant: 8e1
 
     indicator_filler {
-      #type: "constant"
-      #value: 0.5
+      type: "constant"
+      value: 0.5
       #type: "uniform"
       #min: 0.1
       #max: 0.9
-      type: "gaussian"
-      mean: 0.5
-      std: 0.05
+      #type: "gaussian"
+      #mean: 0.5
+      #std: 0.05
     }
   }
 }

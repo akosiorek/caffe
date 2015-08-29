@@ -1,22 +1,4 @@
-//
-// Created by kosiorek on 22/04/15.
-//
-
 #include "segmentation_energy.h"
-#include "caffe/layer.hpp"
-#include <cmath>
-
-#ifdef DBG
-
-#define LOG_FUN_START LOG(INFO) << "Starting " << __FUNCTION__
-#define LOG_FUN_END LOG(INFO) << "Finishing " << __FUNCTION__
-
-#else
-
-#define LOG_FUN_START
-#define LOG_FUN_END
-
-#endif
 
 using namespace Eigen;
 
@@ -28,13 +10,10 @@ SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param
 
     this->logBarrierWeight_ = param.log_barrier_weight();
     this->smoothnesEps_ = param.smoothnes_eps();
-    this->stepSize_ = param.step_size();
     this->minimizationIters_ = param.minimization_iters();
-    this->minGradNorm_ = param.min_grad_norm();
-    this->stepSizeDecay_ = param.step_size_decay();
-
     this->convexParam_ = param.convex_param();
     this->initLipschnitzConstant_ = param.init_lipschitz_constant();
+    this->minUpdateNorm_ = param.min_update_norm();
 }
 
 template<typename Dtype>
@@ -46,12 +25,7 @@ void SegmentationEnergy<Dtype>::reshape(int width, int height) {
 
     bufferEnergyGrad_.Reshape(1, 1, height_, width_);
     bufferMinimization_.Reshape(1, 1, height_, width_);
-    bufferResidualDirection_.Reshape(1, 1, height_, width_);
-    bufferMatVecStorage_.Reshape(1, 1, height_, width_);
-    bufferHessVec_.Reshape(1, 1, height_, width_);
     bufferHessian_.Reshape(5, 1, height_, width_);
-    bufferNAG_.Reshape(1, 1, height_, width_);
-
     bufferArgMinGrapMap_.Reshape(4, 1, height_, width_);
     bufferArgMinEstFuns_.Reshape(4, 1, height_, width_);
     bufferNCOBF1_.Reshape(1, 1, height_, width_);
@@ -132,147 +106,6 @@ void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(const Dtype* indicator
     }
 }
 
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimizeGD_cpu(Dtype *indicator) const {
-
-    LOG(INFO) << "Starting GD!";
-    Dtype* grad = bufferMinimization_.mutable_cpu_data();
-
-//    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
-//    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
-//    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
-//    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
-//        LOG(INFO) << "indicator: " << vec2str(indicator);
-
-        computeEnergyGradient_cpu(indicator, grad);
-
-        Dtype oldGradientNorm = std::numeric_limits<Dtype>::max();
-        Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
-        Dtype energyOld = std::numeric_limits<Dtype>::max();
-        Dtype energy = energy_cpu(indicator);
-        int iter = 0;
-
-//        LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-        while (iter++ < minimizationIters_) {
-            caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
-            computeEnergyGradient_cpu(indicator, grad);
-
-            if (iter % 10 == 0) {
-                oldGradientNorm = gradientNorm;
-                gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
-
-                energyOld = energy;
-                energy = energy_cpu(indicator);
-
-                if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm) || gradientNorm < minGradNorm_) {
-                    break;
-                }
-
-                if (iter % 100 == 0) {
-                    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
-                    gradientNorm;
-                }
-            }
-        }
-//    LOG(INFO) << "indicator: "cd << vec2str(indicator);
-
-    if (std::isnan(energy) || std::isinf(energy)) {
-        LOG(FATAL) << "Energy is Nan. Terminating";
-    }
-
-  LOG(INFO) << "Minimized energy = " << energy;
-}
-
-template<typename Dtype>
-Dtype computeLambda(Dtype oldLambda) {
-    return 0.5 * (1 + std::sqrt(1 + 4 * oldLambda * oldLambda));
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) const {
-
-    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
-    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
-    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
-    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
-
-    Dtype* grad = bufferMinimization_.mutable_cpu_data();
-
-    computeEnergyGradient_cpu(indicator, grad);
-
-    Dtype minGradientNorm = std::numeric_limits<Dtype>::max();
-    Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
-    Dtype minEnergy = std::numeric_limits<Dtype>::max();
-    Dtype energy = energy_cpu(indicator);
-    int iter = 0;
-
-    // initialize algorithm params
-    Dtype lambdaOld = 0;
-    Dtype lambdaNew = computeLambda(lambdaOld);
-    Dtype gamma = 0;
-    Dtype* yOld = bufferNAG_.mutable_cpu_data();
-    Dtype* yNew = bufferNAG_.mutable_cpu_data();
-
-    caffe_set<Dtype>(N_, 0, yOld);
-    caffe_copy<Dtype>(N_, indicator, yNew);
-
-    Dtype stepSize = this->stepSize_;
-
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " gradientNorm = " << gradientNorm;
-    while (iter++ < minimizationIters_) {
-//        caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
-//        computeEnergyGradient_cpu(indicator, grad);
-
-        lambdaOld = lambdaNew;
-        lambdaNew = computeLambda(lambdaOld);
-        gamma = (1 - lambdaOld) / lambdaNew;
-
-        // yOld = yNew
-        caffe_copy<Dtype>(N_, yOld, yNew);
-
-        // yNew = indicator - stepSize * grad(indicator)
-        computeEnergyGradient_cpu(indicator, grad);
-        caffe_copy<Dtype>(N_, indicator, yNew);
-        caffe_axpy<Dtype>(N_, -stepSize, grad, yNew);
-
-        // indicator = (1 - gamma) * yNew + gamma * yOld
-        caffe_copy<Dtype>(N_, yNew, indicator);
-        caffe_scal<Dtype>(N_, 1 - gamma, indicator);
-        caffe_axpy<Dtype>(N_, gamma, yOld, indicator);
-
-        if (iter % 10 == 0) {
-            minGradientNorm = std::min(gradientNorm, minGradientNorm);
-            gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
-
-            minEnergy = std::min(energy, minEnergy);
-            energy = energy_cpu(indicator);
-
-//            if (std::isnan(energy) || gradientNorm < minGradNorm_) {
-//            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)  || gradientNorm < minGradNorm_) {
-//            if (std::isnan(energy) || (gradientNorm > 1.2 * minGradientNorm)  || gradientNorm < minGradNorm_) {
-            if (std::isnan(energy) || (energy > 1.1 * minEnergy)  || gradientNorm < minGradNorm_) {
-                break;
-            }
-
-            if (iter % 500 == 0) {
-                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
-                gradientNorm;
-            }
-
-            if(iter % 1000 == 0) {
-              stepSize *= stepSizeDecay_;
-            }
-        }
-    }
-//    LOG(INFO) << "indicator: "cd << vec2str(indicator);
-
-    if (std::isnan(energy) || std::isinf(energy)) {
-        LOG(FATAL) << "Energy is Nan. Terminating";
-    }
-    LOG(INFO) << "Terminating at #iter: " << iter << " Energy = " << energy << "\tGradientNorm = " << gradientNorm;
-//    LOG(INFO) << "indicator: " << vec2str(indicator);
-    LOG(INFO) << "indicator max = " << *std::max_element(indicator, indicator + N_) << " min = " << *std::min_element(indicator, indicator + N_);
-}
 
 template <typename T> int sgn(T val) {
     return (T(0) < val) - (val < T(0));
@@ -285,7 +118,6 @@ Dtype SegmentationEnergy<Dtype>::cubicRoot(Dtype x) const {
 
 template<typename Dtype>
 std::array<std::complex<Dtype>, 3> SegmentationEnergy<Dtype>::cubicRoots(Dtype a, Dtype b, Dtype c, Dtype d) const {
-//    LOG_FUN_START;
 
     using ComplexT = std::complex<Dtype>;
     static const ComplexT i(0, 1);
@@ -337,7 +169,6 @@ std::array<std::complex<Dtype>, 3> SegmentationEnergy<Dtype>::cubicRoots(Dtype a
 
 template<typename Dtype>
 bool SegmentationEnergy<Dtype>::getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) const {
-    LOG_FUN_START;
 
     for(int i = 0; i < N; ++i) {
         auto roots = cubicRoots(a[i], b[i], c[i], d[i]);
@@ -367,8 +198,6 @@ bool SegmentationEnergy<Dtype>::getValidRoots(int N, Dtype* a, Dtype* b, Dtype* 
 template<typename Dtype>
 bool SegmentationEnergy<Dtype>::argMinGradMap(Dtype L, const Dtype *y,
                                               Dtype *argMin) const {
-    LOG_FUN_START;
-
     Dtype* a = bufferArgMinGrapMap_.mutable_cpu_data();
     Dtype* b = a + N_;
     Dtype* c = b + N_;
@@ -397,30 +226,13 @@ bool SegmentationEnergy<Dtype>::argMinGradMap(Dtype L, const Dtype *y,
 
 template<typename Dtype>
 bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* v, Dtype* argMin) const {
-    LOG_FUN_START;
 
     Dtype* a = bufferArgMinEstFuns_.mutable_cpu_data();
     Dtype* b = a + N_;
     Dtype* c = b + N_;
     Dtype* d = c + N_;
 
-    // update coefficients
-
-//    // a
-//    caffe_axpy<Dtype>(N_, -dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), a);
-//
-//    // b
-//    computeEnergyGradientPiecewise_cpu(y, argMin);
-//    caffe_axpy<Dtype>(N_, -ak, argMin, b);
-//    caffe_axpy<Dtype>(N_, dataWeight_->cpu_data()[0] * ak, unitaryPotential_->cpu_data(), b);
-//
-//    // c
-//    caffe_add_scalar<Dtype>(N_, 2 * logBarrierWeight_ * ak, c);
-//
-//    // d
-//    caffe_add_scalar<Dtype>(N_, -logBarrierWeight_ * ak, d);
-
-
+  // update coefficients
   // a == 1 all the time, thus no update
   // b
   computeEnergyGradientPiecewise_cpu(v, argMin);
@@ -498,112 +310,7 @@ Dtype SegmentationEnergy<Dtype>::gradientIteration(Dtype* indicator, Dtype L) co
 }
 
 template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimizeGradientMethod_cpu(Dtype* indicator) const {
-  LOG_FUN_START;
-
-    Dtype L = this->initLipschnitzConstant_;
-    Dtype delta = std::numeric_limits<Dtype>::max();
-    Dtype oldEnergy = std::numeric_limits<Dtype>::max();
-    Dtype energy = this->energy_cpu(indicator);
-    Dtype* oldIndicator = bufferNCOBF1_.mutable_cpu_data();
-    Dtype* diffIndicator = bufferNCOBF1_.mutable_cpu_diff();
-
-  int iter = 0;
-  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-  while(delta > 1e-14) {// && energy < oldEnergy) {
-    caffe_copy<Dtype>(N_, indicator, oldIndicator);
-    oldEnergy = energy;
-
-    Dtype M = gradientIteration(indicator, L);
-
-    // compute delta
-    caffe_copy<Dtype>(N_, indicator, diffIndicator);
-    caffe_axpy<Dtype>(N_, -1, oldIndicator, diffIndicator);
-    delta = caffe_cpu_nrm2<Dtype>(N_, diffIndicator);
-
-    energy = this->energy_cpu(indicator);
-
-    L = std::max(this->initLipschnitzConstant_, M / 2);
-    ++iter;
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " << delta;
-  }
-  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-  LOG_FUN_END;
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimizeDualGradientMethod_cpu(Dtype* v) const {
-  LOG_FUN_START;
-
-  Dtype L = this->initLipschnitzConstant_;
-  Dtype delta_norm = std::numeric_limits<Dtype>::max();
-  Dtype oldEnergy = std::numeric_limits<Dtype>::max();
-  Dtype energy = this->energy_cpu(v);
-
-  Dtype* y = bufferNCOBF1_.mutable_cpu_data();
-  Dtype* oldY = bufferNCOBF1_.mutable_cpu_diff();
-  Dtype* delta = bufferNCOBF2_.mutable_cpu_data();
-  Dtype* estFunCoeffs = bufferArgMinEstFuns_.mutable_cpu_data();
-
-  // initialize est fun coeffs
-  caffe_set<Dtype>(N_, 1, estFunCoeffs);
-  caffe_set<Dtype>(N_, -1, estFunCoeffs + N_);
-  caffe_axpy<Dtype>(N_, -1, v, estFunCoeffs + N_);
-  caffe_set<Dtype>(2 * N_, 0, estFunCoeffs + 2 * N_);
-
-  int iter = 0;
-  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-
-
-  caffe_copy<Dtype>(N_, v, oldY);
-  // first iteration is a little different, sinc v == v0
-  caffe_copy<Dtype>(N_, v, y);
-  Dtype M = gradientIteration(y, L);
-  L = std::max(this->initLipschnitzConstant_, M / 2);
-
-
-  oldEnergy = energy;
-  energy = this->energy_cpu(y);
-  caffe_copy<Dtype>(N_, y, delta);
-  caffe_axpy<Dtype>(N_, -1, oldY, delta);
-  delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
-
-  ++iter;
-  LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " <<
-  delta_norm;
-
-  // from 2nd iteration on
-  while(delta_norm > 1e-5 && energy < oldEnergy) {
-    caffe_copy<Dtype>(N_, y, oldY);
-    oldEnergy = energy;
-
-//    v = arg min psi()
-    argMinEstFun(L, 1/M, y, v);
-    caffe_copy<Dtype>(N_, v, y);
-    M = gradientIteration(y, L);
-    L = std::max(this->initLipschnitzConstant_, M / 2);
-
-
-
-    // compute delta
-    caffe_copy<Dtype>(N_, y, delta);
-    caffe_axpy<Dtype>(N_, -1, oldY, delta);
-    delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
-
-    energy = this->energy_cpu(y);
-
-    ++iter;
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " <<
-                                                                  delta_norm;
-  }
-  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-  caffe_copy<Dtype>(N_, y, v);
-  LOG_FUN_END;
-}
-
-template<typename Dtype>
 void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
-    LOG_FUN_START;
 
     static const Dtype gammaU = 2;  // Lipschitz constant scaling parameters
     static const Dtype gammaD = 2;  // Author mentioned that gammaU = gammaD is a reasonable choice
@@ -613,8 +320,6 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
     Dtype* t = bufferNCOBF2_.mutable_cpu_data();
     Dtype* grad = bufferNCOBF2_.mutable_cpu_diff();
     Dtype* oldX = bufferMinimization_.mutable_cpu_data();
-    Dtype* delta = bufferMinimization_.mutable_cpu_diff();
-    Dtype delta_norm = std::numeric_limits<Dtype>::max();
 
     // init stuff
     Dtype L = initLipschnitzConstant_;
@@ -632,18 +337,19 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
       caffe_axpy<Dtype>(N_, -1, x, estFunCoeffs + N_);
       caffe_set<Dtype>(2 * N_, 0, estFunCoeffs + 2 * N_);
     }
-    Dtype energy = energy_cpu(x);
 
     int iter = 0;
-    LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
-    while(delta_norm > 1e-5) {
+    LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(x);
+      while(iter < minimizationIters_) {
       caffe_copy<Dtype>(N_, x, oldX);
 
       Dtype gradDiff = 0;
       Dtype gradConvexEst = std::numeric_limits<Dtype>::max();
+      L /= gammaU;
       while(gradDiff < gradConvexEst) {
+        L *= gammaU;
         Dtype k = (1 + convexParam_ * A) / L;
-        ak = 1/L + std::sqrt(k * (k + 2));
+        ak = k + std::sqrt(k * (1/L + A));
 
         // compute y
         caffe_cpu_scale<Dtype>(N_, A / (A + ak), x, y);
@@ -657,57 +363,19 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
         gradDiff = -caffe_cpu_dot<Dtype>(N_, t, grad);
         gradConvexEst = caffe_cpu_nrm2<Dtype>(N_, grad);
         gradConvexEst *= gradConvexEst  / L;
-        if(gradDiff < gradConvexEst) {
-            L *= gammaU;
-        }
       }
 
       A += ak;
       argMinGradMap(L, y, x);
       L /= gammaD;
 
-      LOG(INFO) << "Energy at iter #" << ++iter << " = " << energy << " delta = " <<
-      delta_norm;
-
       // compute new v
       argMinEstFun(L, ak, x, v);
-//      caffe_copy<Dtype>(N_, v, x); // aha!
-      energy = energy_cpu(x);
-
-      caffe_copy<Dtype>(N_, oldX, delta);
-      caffe_axpy<Dtype>(N_, -1, x, delta);
-      delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
+      ++iter;
+//      LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(x);
     }
-    LOG(INFO) << "Minimized energy = " << energy;
 
-  LOG_FUN_END;
-}
-
-template<typename Dtype>
-void SegmentationEnergy<Dtype>::minimizeNewton(Dtype* indicator) const {
-
-  Dtype* update = bufferNCOBF1_.mutable_cpu_data();
-  Dtype* grad = bufferNCOBF1_.mutable_cpu_diff();
-
-  Dtype updateNorm = std::numeric_limits<Dtype>::max();
-
-  int iter = 0;
-  LOG(ERROR) << "energy at iter: " << iter << " = " << this->energy_cpu(indicator) << " update norm = " <<
-                                                                                      updateNorm;
-  while(updateNorm > 1e-6 && iter < 10000) {
-    this->computeEnergyGradient_cpu(indicator, grad);
-    this->invHessianVector_cpu(indicator, grad, update);
-    updateNorm = caffe_cpu_nrm2(N_, update);
-
-    caffe_axpy<Dtype>(N_, -0.00001, update, indicator);
-    ++iter;
-    LOG(ERROR) << "energy at iter: " << iter << " = " << this->energy_cpu(indicator) << " update norm = " <<
-                                                                                        updateNorm;
-  }
-  LOG(ERROR) << "energy at iter: " << iter << " = " << this->energy_cpu(indicator) << " update norm = " <<
-  updateNorm;
-
-
+    LOG(INFO) << "Iter #" << iter << " Minimized energy = " << energy_cpu(x);
 }
 
 
@@ -767,174 +435,72 @@ void SegmentationEnergy<Dtype>::timesVerticalBt_cpu(const Dtype* in,
 template<typename Dtype>
 void SegmentationEnergy<Dtype>::computeSparseHessian_cpu(const Dtype* indicator) const {
 
-    Dtype* du = bufferHessian_.mutable_cpu_diff();
+  Dtype *du = bufferHessian_.mutable_cpu_diff();
 
-    // super diagonals
-    Dtype* diagP2 = bufferHessian_.mutable_cpu_data();
-    Dtype* diagP1 = diagP2 + N_;
+  // super diagonals
+  Dtype *diagP2 = bufferHessian_.mutable_cpu_data();
+  Dtype *diagP1 = diagP2 + N_;
 
-    // diag
-    Dtype* diag = diagP1 + N_;
+  // diag
+  Dtype *diag = diagP1 + N_;
 
-    // sub diagonals
-    Dtype* diagM1 = diag + N_;
-    Dtype* diagM2 = diagM1 + N_;
+  // sub diagonals
+  Dtype *diagM1 = diag + N_;
+  Dtype *diagM2 = diagM1 + N_;
 
-    caffe_set<Dtype>(5 * N_, 0, diagP2);
+  caffe_set<Dtype>(5 * N_, 0, diagP2);
 
 // horizontal =========================
-    caffe_set<Dtype>(N_, 0, du);
-    timesHorizontalB_cpu(indicator, du);
-    caffe_mul<Dtype>(N_, du, this->horizontalPotential_->cpu_data(), du);
-    charbonnierD2_cpu(du, du);
-    // we're using padded du by 1 column; charbonnier puts there non-zero values which have to be taken care of
-    zeroLastColumn_cpu(du);
-    caffe_mul<Dtype>(N_, du, this->horizontalPotential_->cpu_data(), du);
-    caffe_mul<Dtype>(N_, du, this->horizontalPotential_->cpu_data(), du);
+  caffe_set<Dtype>(N_, 0, du);
+  timesHorizontalB_cpu(indicator, du);
+  caffe_mul<Dtype>(N_, du, this->horizontalPotential_->cpu_data(), du);
+  charbonnierD2_cpu(du, du);
+  // we're using padded du by 1 column; charbonnier puts there non-zero values which have to be taken care of
+  zeroLastColumn_cpu(du);
+  caffe_mul<Dtype>(N_, du, this->horizontalPotential_->cpu_data(), du);
+  caffe_mul<Dtype>(N_, du, this->horizontalPotential_->cpu_data(), du);
 
-    // diag
-    caffe_copy<Dtype>(N_, du, diag);
-    for (int i = 0; i < height_; ++i) {
-        size_t offset = i * width_;
-        diag[offset + width_ - 1] = 0;
-        // add g(:, 1:end) to g(:, 2:end+1)
-        caffe_axpy<Dtype>(width_ - 1, 1, du + offset, diag + offset + 1);
-    }
+  // diag
+  caffe_copy<Dtype>(N_, du, diag);
+  for (int i = 0; i < height_; ++i) {
+    size_t offset = i * width_;
+    diag[offset + width_ - 1] = 0;
+    // add g(:, 1:end) to g(:, 2:end+1)
+    caffe_axpy<Dtype>(width_ - 1, 1, du + offset, diag + offset + 1);
+  }
 
-    //superdiag
-    caffe_axpy<Dtype>(N_ - 1, -1, du, diagP1);
+  //superdiag
+  caffe_axpy<Dtype>(N_ - 1, -1, du, diagP1);
 
-    //subdiag
-    caffe_axpy<Dtype>(N_ - 1, -1, du, diagM1 + 1);
+  //subdiag
+  caffe_axpy<Dtype>(N_ - 1, -1, du, diagM1 + 1);
 
 //  vertical =======================================================
-    caffe_set<Dtype>(N_, 0, du);
-    timesVerticalB_cpu(indicator, du);
-    caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
-    charbonnierD2_cpu(du, du);
-    zeroLastRow_cpu(du);
-    caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
-    caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
+  caffe_set<Dtype>(N_, 0, du);
+  timesVerticalB_cpu(indicator, du);
+  caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
+  charbonnierD2_cpu(du, du);
+  zeroLastRow_cpu(du);
+  caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
+  caffe_mul<Dtype>(N_, du, this->verticalPotential_->cpu_data(), du);
 
-    // diag
-    caffe_axpy<Dtype>(N_ - width_, 1, du, diag);
-    caffe_axpy<Dtype>(N_ - width_, 1, du, diag + width_);
+  // diag
+  caffe_axpy<Dtype>(N_ - width_, 1, du, diag);
+  caffe_axpy<Dtype>(N_ - width_, 1, du, diag + width_);
 
-    //superdiag
-    caffe_axpy<Dtype>(N_ - width_, -1, du, diagP2);
+  //superdiag
+  caffe_axpy<Dtype>(N_ - width_, -1, du, diagP2);
 //
-    //subdiag
-    caffe_axpy<Dtype>(N_ - width_, -1, du, diagM2 + width_);
+  //subdiag
+  caffe_axpy<Dtype>(N_ - width_, -1, du, diagM2 + width_);
 
 // log barrier =======================================================
-    for(int i = 0; i < N_; ++i) {
-        Dtype u = indicator[i];
-        u = 1 / (u * u) + 1 / ((1 - u) * (1 - u));
-        diag[i] += this->logBarrierWeight_ * u;
-    }
+  for (int i = 0; i < N_; ++i) {
+    Dtype u = indicator[i];
+    u = 1 / (u * u) + 1 / ((1 - u) * (1 - u));
+    diag[i] += this->logBarrierWeight_ * u;
+  }
 }
-
-
-//template<typename Dtype>
-//void SegmentationEnergy<Dtype>::approxHessVec_cpu(const Dtype* indicator,
-//                                                  const Dtype* vec,
-//                                                  Dtype* Hv) const {
-//  Dtype maxElem = fabs(vec[0]);
-//  for (int i = 1; i < N_; ++i) {
-//    if (fabs(vec[i]) > maxElem) {
-//      maxElem = fabs(vec[i]);
-//    }
-//  }
-//
-//  Dtype eps = fmax(1e-6, fmin(1, 1e-3 / maxElem));
-//  Dtype* point = bufferHessVec_.mutable_cpu_data();
-//  Dtype* grad = bufferHessVec_.mutable_cpu_diff();
-//
-//  caffe_set<Dtype>(N_, 0, Hv);
-//
-////  //  2nd order
-////  //f(x + h)
-////  caffe_copy<Dtype>(N_, indicator, point);
-////  caffe_axpy<Dtype>(N_, eps, vec, point);
-////  computeEnergyGradient_cpu(point, grad);
-////  caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
-////
-////  //f(x - h)
-////  caffe_copy<Dtype>(N_, indicator, point);
-////  caffe_axpy<Dtype>(N_, -eps, vec, point);
-////  computeEnergyGradient_cpu(point, grad);
-////
-////  //Subtract
-////  caffe_axpy<Dtype>(N_, -0.5 / eps, grad, Hv);
-//
-//
-//      //  4th order derivative approximation by Finite Differences
-//      //f(x + 2h)
-//      caffe_copy<Dtype>(N_, indicator, point);
-//      caffe_axpy<Dtype>(N_, 2*eps, vec, point);
-//      computeEnergyGradient_cpu(point, grad);
-//      caffe_axpy<Dtype>(N_, -1 / (12*eps), grad, Hv);
-//
-//      //f(x - 2h)
-//      caffe_copy<Dtype>(N_, indicator, point);
-//      caffe_axpy<Dtype>(N_, -2*eps, vec, point);
-//      computeEnergyGradient_cpu(point, grad);
-//      caffe_axpy<Dtype>(N_, 1 / (12*eps), grad, Hv);
-//
-//      //f(x + h)
-//      caffe_copy<Dtype>(N_, indicator, point);
-//      caffe_axpy<Dtype>(N_, eps, vec, point);
-//      computeEnergyGradient_cpu(point, grad);
-//      caffe_axpy<Dtype>(N_, 2 / (3*eps), grad, Hv);
-//
-//      //f(x - 2h)
-//      caffe_copy<Dtype>(N_, indicator, point);
-//      caffe_axpy<Dtype>(N_, -eps, vec, point);
-//      computeEnergyGradient_cpu(point, grad);
-//      caffe_axpy<Dtype>(N_, -2 / (3*eps), grad, Hv);
-//
-//}
-
-
-//template<typename Dtype>
-//void SegmentationEnergy<Dtype>::sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out) const {
-//
-//    // super diagonals
-//    const Dtype* diagP2 = bufferHessian_.cpu_data();
-//    const Dtype* diagP1 = diagP2 + N_;
-//
-//    // diag
-//    const Dtype* diag = diagP1+ N_;
-//
-//    // sub diagonals
-//    const Dtype* diagM1 = diag + N_;
-//    const Dtype* diagM2 = diagM1 + N_;
-//
-//    out[0] = diag[0] * vec[0] + diagP1[0] * vec[1] + diagP2[0] * vec[width_];
-//    for(int i = 1; i < width_; ++i) {
-//        out[i] = diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1] + diagP2[i] * vec[i + width_];
-//    }
-//    for(int i = width_; i < N_ - width_; ++i) {
-//        out[i] = diagM2[i] * vec[i - width_] + diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1] + diagP2[i] * vec[i + width_];
-//    }
-//    for(int i = N_ - width_; i < N_ - 1; ++i) {
-//        out[i] = diagM2[i] * vec[i - width_] + diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1];
-//    }
-//
-//    out[N_ - 1] = diagM2[N_ - 1] * vec[N_ - width_ - 1] + diagM1[N_ - 1] * vec[N_ - 2] + diag[N_ - 1] * vec[N_ - 1];
-//
-//
-////  typedef Matrix<Dtype, Dynamic, 1> VectorType;
-////  auto hessian = convertHessianToEigenSparse();
-////
-////  MatrixXd dense(hessian);
-////  LOG(ERROR) << "\n\n" << dense << "\n\n";
-////
-////  const Map<const VectorType> vector(vec, N_, 1);
-////  Map<VectorType> result(out, N_, 1);
-////  result = hessian * vector;
-//
-//}
 
 template<typename Dtype>
 void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
@@ -1020,45 +586,392 @@ auto SegmentationEnergy<Dtype>::convertHessianToEigenSparse() const -> SparseMat
   return hessian;
 }
 
-
-
 INSTANTIATE_CLASS(SegmentationEnergy);
-
 }  // namespace caffe
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::reshape(int width, int height) {
+//    bufferResidualDirection_.Reshape(1, 1, height_, width_);
+//    bufferMatVecStorage_.Reshape(1, 1, height_, width_);
+//    bufferHessVec_.Reshape(1, 1, height_, width_);
+//    bufferNAG_.Reshape(1, 1, height_, width_)
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::minimizeGD_cpu(Dtype *indicator) const {
+//
+//    LOG(INFO) << "Starting GD!";
+//    Dtype* grad = bufferMinimization_.mutable_cpu_data();
+//
+////    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
+////    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
+////    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
+////    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
+////        LOG(INFO) << "indicator: " << vec2str(indicator);
+//
+//        computeEnergyGradient_cpu(indicator, grad);
+//
+//        Dtype oldGradientNorm = std::numeric_limits<Dtype>::max();
+//        Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+//        Dtype energyOld = std::numeric_limits<Dtype>::max();
+//        Dtype energy = energy_cpu(indicator);
+//        int iter = 0;
+//
+////        LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+//        while (iter++ < minimizationIters_) {
+//            caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
+//            computeEnergyGradient_cpu(indicator, grad);
+//
+//            if (iter % 10 == 0) {
+//                oldGradientNorm = gradientNorm;
+//                gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+//
+//                energyOld = energy;
+//                energy = energy_cpu(indicator);
+//
+//                if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm) || gradientNorm < minGradNorm_) {
+//                    break;
+//                }
+//
+//                if (iter % 100 == 0) {
+//                    LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+//                    gradientNorm;
+//                }
+//            }
+//        }
+////    LOG(INFO) << "indicator: "cd << vec2str(indicator);
+//
+//    if (std::isnan(energy) || std::isinf(energy)) {
+//        LOG(FATAL) << "Energy is Nan. Terminating";
+//    }
+//
+//  LOG(INFO) << "Minimized energy = " << energy;
+//}
+//
+//template<typename Dtype>
+//Dtype computeLambda(Dtype oldLambda) {
+//    return 0.5 * (1 + std::sqrt(1 + 4 * oldLambda * oldLambda));
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::minimizeNAG_cpu(Dtype *indicator) const {
+//
+//    LOG(INFO) << "data: " << this->dataWeight_->cpu_data()[0];
+//    LOG(INFO) << "unit: " << vec2str(unitaryPotential_->cpu_data());
+//    LOG(INFO) << "hori: " << vec2str(verticalPotential_->cpu_data());
+//    LOG(INFO) << "vert: " << vec2str(horizontalPotential_->cpu_data());
+//
+//    Dtype* grad = bufferMinimization_.mutable_cpu_data();
+//
+//    computeEnergyGradient_cpu(indicator, grad);
+//
+//    Dtype minGradientNorm = std::numeric_limits<Dtype>::max();
+//    Dtype gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+//    Dtype minEnergy = std::numeric_limits<Dtype>::max();
+//    Dtype energy = energy_cpu(indicator);
+//    int iter = 0;
+//
+//    // initialize algorithm params
+//    Dtype lambdaOld = 0;
+//    Dtype lambdaNew = computeLambda(lambdaOld);
+//    Dtype gamma = 0;
+//    Dtype* yOld = bufferNAG_.mutable_cpu_data();
+//    Dtype* yNew = bufferNAG_.mutable_cpu_data();
+//
+//    caffe_set<Dtype>(N_, 0, yOld);
+//    caffe_copy<Dtype>(N_, indicator, yNew);
+//
+//    Dtype stepSize = this->stepSize_;
+//
+//    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " gradientNorm = " << gradientNorm;
+//    while (iter++ < minimizationIters_) {
+////        caffe_axpy<Dtype>(N_, -stepSize_, grad, indicator);
+////        computeEnergyGradient_cpu(indicator, grad);
+//
+//        lambdaOld = lambdaNew;
+//        lambdaNew = computeLambda(lambdaOld);
+//        gamma = (1 - lambdaOld) / lambdaNew;
+//
+//        // yOld = yNew
+//        caffe_copy<Dtype>(N_, yOld, yNew);
+//
+//        // yNew = indicator - stepSize * grad(indicator)
+//        computeEnergyGradient_cpu(indicator, grad);
+//        caffe_copy<Dtype>(N_, indicator, yNew);
+//        caffe_axpy<Dtype>(N_, -stepSize, grad, yNew);
+//
+//        // indicator = (1 - gamma) * yNew + gamma * yOld
+//        caffe_copy<Dtype>(N_, yNew, indicator);
+//        caffe_scal<Dtype>(N_, 1 - gamma, indicator);
+//        caffe_axpy<Dtype>(N_, gamma, yOld, indicator);
+//
+//        if (iter % 10 == 0) {
+//            minGradientNorm = std::min(gradientNorm, minGradientNorm);
+//            gradientNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+//
+//            minEnergy = std::min(energy, minEnergy);
+//            energy = energy_cpu(indicator);
+//
+////            if (std::isnan(energy) || gradientNorm < minGradNorm_) {
+////            if (std::isnan(energy) || (energy > energyOld) || (gradientNorm > oldGradientNorm)  || gradientNorm < minGradNorm_) {
+////            if (std::isnan(energy) || (gradientNorm > 1.2 * minGradientNorm)  || gradientNorm < minGradNorm_) {
+//            if (std::isnan(energy) || (energy > 1.1 * minEnergy)  || gradientNorm < minGradNorm_) {
+//                break;
+//            }
+//
+//            if (iter % 500 == 0) {
+//                LOG(INFO) << "Energy at #iter: " << iter << " = " << energy << "\tGradientNorm = " <<
+//                gradientNorm;
+//            }
+//
+//            if(iter % 1000 == 0) {
+//              stepSize *= stepSizeDecay_;
+//            }
+//        }
+//    }
+////    LOG(INFO) << "indicator: "cd << vec2str(indicator);
+//
+//    if (std::isnan(energy) || std::isinf(energy)) {
+//        LOG(FATAL) << "Energy is Nan. Terminating";
+//    }
+//    LOG(INFO) << "Terminating at #iter: " << iter << " Energy = " << energy << "\tGradientNorm = " << gradientNorm;
+////    LOG(INFO) << "indicator: " << vec2str(indicator);
+//    LOG(INFO) << "indicator max = " << *std::max_element(indicator, indicator + N_) << " min = " << *std::min_element(indicator, indicator + N_);
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::minimizeGradientMethod_cpu(Dtype* indicator) const {
+//  LOG_FUN_START;
+//
+//    Dtype L = this->initLipschnitzConstant_;
+//    Dtype delta = std::numeric_limits<Dtype>::max();
+//    Dtype oldEnergy = std::numeric_limits<Dtype>::max();
+//    Dtype energy = this->energy_cpu(indicator);
+//    Dtype* oldIndicator = bufferNCOBF1_.mutable_cpu_data();
+//    Dtype* diffIndicator = bufferNCOBF1_.mutable_cpu_diff();
+//
+//  int iter = 0;
+//  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+//  while(delta > 1e-14) {// && energy < oldEnergy) {
+//    caffe_copy<Dtype>(N_, indicator, oldIndicator);
+//    oldEnergy = energy;
+//
+//    Dtype M = gradientIteration(indicator, L);
+//
+//    // compute delta
+//    caffe_copy<Dtype>(N_, indicator, diffIndicator);
+//    caffe_axpy<Dtype>(N_, -1, oldIndicator, diffIndicator);
+//    delta = caffe_cpu_nrm2<Dtype>(N_, diffIndicator);
+//
+//    energy = this->energy_cpu(indicator);
+//
+//    L = std::max(this->initLipschnitzConstant_, M / 2);
+//    ++iter;
+//    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " << delta;
+//  }
+//  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+//  LOG_FUN_END;
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::minimizeDualGradientMethod_cpu(Dtype* v) const {
+//  LOG_FUN_START;
+//
+//  Dtype L = this->initLipschnitzConstant_;
+//  Dtype delta_norm = std::numeric_limits<Dtype>::max();
+//  Dtype oldEnergy = std::numeric_limits<Dtype>::max();
+//  Dtype energy = this->energy_cpu(v);
+//
+//  Dtype* y = bufferNCOBF1_.mutable_cpu_data();
+//  Dtype* oldY = bufferNCOBF1_.mutable_cpu_diff();
+//  Dtype* delta = bufferNCOBF2_.mutable_cpu_data();
+//  Dtype* estFunCoeffs = bufferArgMinEstFuns_.mutable_cpu_data();
+//
+//  // initialize est fun coeffs
+//  caffe_set<Dtype>(N_, 1, estFunCoeffs);
+//  caffe_set<Dtype>(N_, -1, estFunCoeffs + N_);
+//  caffe_axpy<Dtype>(N_, -1, v, estFunCoeffs + N_);
+//  caffe_set<Dtype>(2 * N_, 0, estFunCoeffs + 2 * N_);
+//
+//  int iter = 0;
+//  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+//
+//
+//  caffe_copy<Dtype>(N_, v, oldY);
+//  // first iteration is a little different, sinc v == v0
+//  caffe_copy<Dtype>(N_, v, y);
+//  Dtype M = gradientIteration(y, L);
+//  L = std::max(this->initLipschnitzConstant_, M / 2);
+//
+//
+//  oldEnergy = energy;
+//  energy = this->energy_cpu(y);
+//  caffe_copy<Dtype>(N_, y, delta);
+//  caffe_axpy<Dtype>(N_, -1, oldY, delta);
+//  delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
+//
+//  ++iter;
+//  LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " <<
+//  delta_norm;
+//
+//  // from 2nd iteration on
+//  while(delta_norm > targetDelta_) {// && energy < oldEnergy); {
+//    caffe_copy<Dtype>(N_, y, oldY);
+//    oldEnergy = energy;
+//
+////    v = arg min psi()
+//    argMinEstFun(L, 1/M, y, v);
+//    caffe_copy<Dtype>(N_, v, y);
+//    M = gradientIteration(y, L);
+//    L = std::max(this->initLipschnitzConstant_, M / 2);
+//
+//
+//
+//    // compute delta
+//    caffe_copy<Dtype>(N_, y, delta);
+//    caffe_axpy<Dtype>(N_, -1, oldY, delta);
+//    delta_norm = caffe_cpu_nrm2<Dtype>(N_, delta);
+//
+//    energy = this->energy_cpu(y);
+//
+//    ++iter;
+//    LOG(INFO) << "Energy at iter #" << iter << " = " << energy << " delta = " <<
+//                                                                  delta_norm;
+//  }
+//
+//  LOG(INFO) << "Energy at iter #" << iter << " = " << energy;
+//  caffe_copy<Dtype>(N_, y, v);
+//  LOG_FUN_END;
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::minimizeNewton(Dtype* indicator) const {
+//
+//  Dtype* update = bufferNCOBF1_.mutable_cpu_data();
+//  Dtype* grad = bufferNCOBF1_.mutable_cpu_diff();
+//
+//  Dtype updateNorm = std::numeric_limits<Dtype>::max();
+//
+//  int iter = 0;
+//  LOG(ERROR) << "energy at iter: " << iter << " = " << this->energy_cpu(indicator) << " update norm = " <<
+//                                                                                      updateNorm;
+//  while(updateNorm > 1e-6 && iter < 10000) {
+//    this->computeEnergyGradient_cpu(indicator, grad);
+//    this->invHessianVector_cpu(indicator, grad, update);
+//    updateNorm = caffe_cpu_nrm2(N_, update);
+//
+//    caffe_axpy<Dtype>(N_, -0.00001, update, indicator);
+//    ++iter;
+//    LOG(ERROR) << "energy at iter: " << iter << " = " << this->energy_cpu(indicator) << " update norm = " <<
+//                                                                                        updateNorm;
+//  }
+//  LOG(ERROR) << "energy at iter: " << iter << " = " << this->energy_cpu(indicator) << " update norm = " <<
+//  updateNorm;
+//
+//
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::approxHessVec_cpu(const Dtype* indicator,
+//                                                  const Dtype* vec,
+//                                                  Dtype* Hv) const {
+//  Dtype maxElem = fabs(vec[0]);
+//  for (int i = 1; i < N_; ++i) {
+//    if (fabs(vec[i]) > maxElem) {
+//      maxElem = fabs(vec[i]);
+//    }
+//  }
+//
+//  Dtype eps = fmax(1e-6, fmin(1, 1e-3 / maxElem));
+//  Dtype* point = bufferHessVec_.mutable_cpu_data();
+//  Dtype* grad = bufferHessVec_.mutable_cpu_diff();
+//
+//  caffe_set<Dtype>(N_, 0, Hv);
+//
+////  //  2nd order
+////  //f(x + h)
+////  caffe_copy<Dtype>(N_, indicator, point);
+////  caffe_axpy<Dtype>(N_, eps, vec, point);
+////  computeEnergyGradient_cpu(point, grad);
+////  caffe_axpy<Dtype>(N_, 0.5 / eps, grad, Hv);
+////
+////  //f(x - h)
+////  caffe_copy<Dtype>(N_, indicator, point);
+////  caffe_axpy<Dtype>(N_, -eps, vec, point);
+////  computeEnergyGradient_cpu(point, grad);
+////
+////  //Subtract
+////  caffe_axpy<Dtype>(N_, -0.5 / eps, grad, Hv);
+//
+//
+//      //  4th order derivative approximation by Finite Differences
+//      //f(x + 2h)
+//      caffe_copy<Dtype>(N_, indicator, point);
+//      caffe_axpy<Dtype>(N_, 2*eps, vec, point);
+//      computeEnergyGradient_cpu(point, grad);
+//      caffe_axpy<Dtype>(N_, -1 / (12*eps), grad, Hv);
+//
+//      //f(x - 2h)
+//      caffe_copy<Dtype>(N_, indicator, point);
+//      caffe_axpy<Dtype>(N_, -2*eps, vec, point);
+//      computeEnergyGradient_cpu(point, grad);
+//      caffe_axpy<Dtype>(N_, 1 / (12*eps), grad, Hv);
+//
+//      //f(x + h)
+//      caffe_copy<Dtype>(N_, indicator, point);
+//      caffe_axpy<Dtype>(N_, eps, vec, point);
+//      computeEnergyGradient_cpu(point, grad);
+//      caffe_axpy<Dtype>(N_, 2 / (3*eps), grad, Hv);
+//
+//      //f(x - 2h)
+//      caffe_copy<Dtype>(N_, indicator, point);
+//      caffe_axpy<Dtype>(N_, -eps, vec, point);
+//      computeEnergyGradient_cpu(point, grad);
+//      caffe_axpy<Dtype>(N_, -2 / (3*eps), grad, Hv);
+//
+//}
+//
+//template<typename Dtype>
+//void SegmentationEnergy<Dtype>::sparseHessianMultiply_cpu(const Dtype* vec, Dtype* out) const {
+//
+//    // super diagonals
+//    const Dtype* diagP2 = bufferHessian_.cpu_data();
+//    const Dtype* diagP1 = diagP2 + N_;
+//
+//    // diag
+//    const Dtype* diag = diagP1+ N_;
+//
+//    // sub diagonals
+//    const Dtype* diagM1 = diag + N_;
+//    const Dtype* diagM2 = diagM1 + N_;
+//
+//    out[0] = diag[0] * vec[0] + diagP1[0] * vec[1] + diagP2[0] * vec[width_];
+//    for(int i = 1; i < width_; ++i) {
+//        out[i] = diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1] + diagP2[i] * vec[i + width_];
+//    }
+//    for(int i = width_; i < N_ - width_; ++i) {
+//        out[i] = diagM2[i] * vec[i - width_] + diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1] + diagP2[i] * vec[i + width_];
+//    }
+//    for(int i = N_ - width_; i < N_ - 1; ++i) {
+//        out[i] = diagM2[i] * vec[i - width_] + diagM1[i] * vec[i - 1] + diag[i] * vec[i] + diagP1[i] * vec[i + 1];
+//    }
+//
+//    out[N_ - 1] = diagM2[N_ - 1] * vec[N_ - width_ - 1] + diagM1[N_ - 1] * vec[N_ - 2] + diag[N_ - 1] * vec[N_ - 1];
+//
+//
+////  typedef Matrix<Dtype, Dynamic, 1> VectorType;
+////  auto hessian = convertHessianToEigenSparse();
+////
+////  MatrixXd dense(hessian);
+////  LOG(ERROR) << "\n\n" << dense << "\n\n";
+////
+////  const Map<const VectorType> vector(vec, N_, 1);
+////  Map<VectorType> result(out, N_, 1);
+////  result = hessian * vector;
+//
+//}
+//
 ///**
 // * Conjugate Gradient
 // */

@@ -1,19 +1,7 @@
-#include <cfloat>
-#include <cmath>
-#include <cstring>
-#include <vector>
-#include <memory>
-
 #include "gtest/gtest.h"
 
-#include "caffe/blob.hpp"
-#include "caffe/common.hpp"
-#include "caffe/filler.hpp"
-#include "caffe/util/rng.hpp"
 #include "caffe/vision_layers.hpp"
-#include "caffe/util/math_functions.hpp"
 
-#include "caffe/test/test_caffe_main.hpp"
 #include "caffe/layers/segmentation_energy.h"
 #include "caffe/test/test_gradient_check_util.hpp"
 
@@ -27,20 +15,15 @@ class SegmentationLayerTest : public ::testing::Test {
  	   bottomVec({&unitPotential, &horizontalPotential, &verticalPotential}),
  	   topVec({&topBlob}) {
 
-	  segmentationParam->set_step_size(1e-3);
-	  segmentationParam->set_minimization_iters(1e3);
+	  segmentationParam->set_minimization_iters(20);
 	  segmentationParam->set_init_data_weight(0.5);
 	  segmentationParam->set_log_barrier_weight(1e-3);
 	  segmentationParam->set_smoothnes_eps(1e-3);
-	  segmentationParam->set_min_grad_norm(0);
-	  segmentationParam->set_step_size_decay(1);
 	  segmentationParam->set_convex_param(1e1);
 	  segmentationParam->set_init_lipschitz_constant(1e4);
+    segmentationParam->set_min_update_norm(1e-5);
 	
 	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
-	  //filler->set_type("uniform");
-	  //filler->set_min(0.1);
-	  //filler->set_max(0.9);
 	  filler->set_type("gaussian");
 	  filler->set_mean(0.5);
 	  filler->set_std(0.05);
@@ -98,11 +81,8 @@ TYPED_TEST(SegmentationLayerTest, ForwardTest) {
   auto energyValue = energy.energy_cpu(data);
   ASSERT_LE(energyValue, 0.1);
 
-
-  // energy gradient norm
   energy.computeEnergyGradient_cpu(this->topBlob.cpu_data(), this->topBlob.mutable_cpu_diff());
   auto gradientNorm = caffe_cpu_nrm2<Dtype>(9, this->topBlob.cpu_diff());
-//  LOG(ERROR) << "Gradient norm = " << gradientNorm;
 
   ASSERT_LE(gradientNorm, 0.35);
   LOG(INFO) << energyValue << " " << gradientNorm;
@@ -111,13 +91,10 @@ TYPED_TEST(SegmentationLayerTest, ForwardTest) {
 TYPED_TEST(SegmentationLayerTest, GradientTest) {
   typedef TypeParam Dtype;
 
-  //only for doubles due to cancellation
-  if(sizeof(Dtype) == sizeof(double)) {
   GradientChecker<Dtype> checker(1e-2, 1e-3);
+////  TODO Change to exhaustive
 //  checker.CheckGradientExhaustive(this->layer.get(), this->bottomVec, this->topVec);
   checker.CheckGradientSingle(this->layer.get(), this->bottomVec, this->topVec, 0, -1, 0);
-  }
 }
-
 
 }  // namespace caffe
