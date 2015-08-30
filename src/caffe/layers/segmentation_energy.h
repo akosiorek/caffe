@@ -114,36 +114,6 @@ public:
   Dtype initLipschnitzConstant_;
 };
 
-#include <sstream>
-
-template<typename Dtype>
-std::string vec2str(const Dtype *v, int n = 9) {
-  std::stringstream ss;
-  for (int i = 0; i < n; ++i) {
-    ss << v[i] << " ";
-  }
-  return ss.str();
-}
-
 }  // namespace caffe
 
 #endif //CAFFE_SEGMENTATION_ENERGY_H
-
-//// Gradient Descent
-//void minimizeGD_cpu(Dtype * indicator) const;
-//// Nesterov's Accelerated Gradient
-//void minimizeNAG_cpu(Dtype * indicator) const;
-//void minimizeGradientMethod_cpu(Dtype * indicator) const;
-//void minimizeDualGradientMethod_cpu(Dtype * v) const;
-//// Newton's iteration
-//void minimizeNewton(Dtype * indicator) const;
-//
-//void sparseHessianMultiply_cpu(const Dtype *vec, Dtype *out) const;
-//
-//void approxHessVec_cpu(const Dtype *indicator, const Dtype *vec,
-//                       Dtype *Hv) const;
-//
-//mutable Blob<Dtype> bufferResidualDirection_;
-//mutable Blob<Dtype> bufferMatVecStorage_;
-//mutable Blob<Dtype> bufferHessVec_;
-//mutable Blob<Dtype> bufferNAG_;

@@ -1,18 +1,5 @@
-#include <cfloat>
-#include <cmath>
-#include <cstring>
-#include <vector>
-#include <cmath>
-#include <memory>
 
 #include "gtest/gtest.h"
-
-#include "caffe/blob.hpp"
-#include "caffe/common.hpp"
-#include "caffe/filler.hpp"
-#include "caffe/util/rng.hpp"
-#include "caffe/vision_layers.hpp"
-#include "caffe/util/math_functions.hpp"
 
 #include "caffe/test/test_caffe_main.hpp"
 #include "caffe/layers/segmentation_energy.h"
@@ -99,8 +86,6 @@ public:
 };
 
 TYPED_TEST_CASE(SegmentationEnergyTest, TestDtypes);
-//TYPED_TEST_CASE(SegmentationEnergyTest, ::testing::Types<double>);
-
 
 TYPED_TEST(SegmentationEnergyTest, TestTimesHorizontalB_CPU) {
   static const TypeParam result[9] = { .7,    -.5,     .0,
@@ -169,67 +154,6 @@ TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationNCBOF_CPU) {
     }
 }
 
-//TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationGradientDescent_CPU) {
-//
-//    TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
-//    TypeParam energyAfter = 0;
-//    for(int i = 0; i < 10; ++i) {
-//      this->energy->minimizeGD_cpu(this->indicator.data());
-//
-//      energyAfter = this->energy->energy_cpu(this->indicator.data());
-//      ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
-//      energyBefore = energyAfter;
-//    }
-//}
-//
-//TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationNesterovAcceleratedGradient_CPU) {
-//
-//    TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
-//    TypeParam energyAfter = 0;
-//
-//    for(int i = 0; i < 10; ++i) {
-//      this->energy->minimizeNAG_cpu(this->indicator.data());
-//
-//      energyAfter = this->energy->energy_cpu(this->indicator.data());
-//      ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
-//      energyBefore = energyAfter;
-//    }
-//}
-//
-//// tests finite-difference hessian-vec approximation
-//TYPED_TEST(SegmentationEnergyTest, TestApproxHessianVec_CPU) {
-//
-//    TypeParam result[9] = { 0.0748398918926085,         0.861344049711832,        0.0599899557474082,
-//                            0.0733492169024963,        0.0506015600298948,        0.0434338498878084,
-//                            0.0382463873213612,          0.48423417715604,         0.165508019547289};
-//
-//    TypeParam vec[9] = {0.002817504723421,   0.008508397242876,   0.006644304780617,
-//                        0.005576876972500,   0.006325079707341,   0.003303039106391,
-//                        0.004236820567728,   0.004783289295340,   0.006230888066461};
-//
-//    this->energy->approxHessVec_cpu(this->indicator.data(), vec, this->output.data());
-//
-//    // finite differences aren't too good, especially for floats
-////    ASSERT_NEAR_VEC(this->output.data(), result, 9);
-//    ASSERT_NEAR_VEC_WTOL(this->output.data(), result, 9, this->tolerance * 1e3);
-//}
-
-//TYPED_TEST(SegmentationEnergyTest, TestSparseHessianMultiply_CPU) {
-//
-//  TypeParam result[9] = {0.7656, 1.2851, 1.4304, 0.5353, 1.4780, 0.8212, 0.7067, 0.9554, 0.6005};
-//  TypeParam diags[45] = { 0.01,    0.96,    0.12,    0.31,    0.24,    0.35,       0,       0,       0,
-//                          0.05,    0.77,    0.04,    0.49,    0.48,    0.51,    0.52,    0.30,       0,
-//                          0.60,    0.96,    0.34,    0.66,    0.02,    0.30,    0.32,    0.82,    0.55,
-//                             0,    0.40,    0.26,    0.59,    0.01,    0.86,    0.56,    0.48,    0.31,
-//                             0,       0,       0,    0.46,    0.45,    0.67,    0.31,    0.19,    0.17};
-//  TypeParam vec[9] =    {0.28,    0.85,    0.66,    0.56,    0.63,    0.33,    0.42,    0.48,    0.62};
-//
-//
-//  caffe_copy<TypeParam>(45, diags, this->energy->bufferHessian_.mutable_cpu_data());
-//  this->energy->sparseHessianMultiply_cpu(vec, this->output.data());
-//  ASSERT_NEAR_VEC(this->output.data(), result, 9);
-//}
-
 TYPED_TEST(SegmentationEnergyTest, TestComputeSparseHessian_CPU) {
 
   // expected result
@@ -263,20 +187,6 @@ TYPED_TEST(SegmentationEnergyTest, TestComputeSparseHessian_CPU) {
   ASSERT_NEAR_VEC(output+36, diagM2, 9);
 }
 
-//TYPED_TEST(SegmentationEnergyTest, TestSparseHessianVec_CPU) {
-//
-//  TypeParam finiteDifferenceApprox[9];
-//
-//  this->energy->approxHessVec_cpu(this->indicator.data(), this->indicator.data(), finiteDifferenceApprox);
-//  this->energy->computeSparseHessian_cpu(this->indicator.data());
-//  this->energy->sparseHessianMultiply_cpu(this->indicator.data(), this->output.data());
-//
-//  this->printVec(finiteDifferenceApprox);
-//  this->printVec(this->output.data());
-//
-//  ASSERT_NEAR_VEC_WTOL(this->output.data(), finiteDifferenceApprox, 9, this->tolerance * 1e2);
-//}
-
 // TODO investigate low accuracy
 TYPED_TEST(SegmentationEnergyTest, TestInvertedHessianVec_CPU) {
 
@@ -289,11 +199,6 @@ TYPED_TEST(SegmentationEnergyTest, TestInvertedHessianVec_CPU) {
                         0.42,    0.48,    0.62};
 
     this->energy->invHessianVector_cpu(this->indicator.data(), vec, this->output.data());
-
-//    auto eigenHess = this->energy->convertHessianToEigenSparse();
-//    Eigen::MatrixXd dense(eigenHess);
-//    LOG(ERROR) << "\n\n" << dense << "\n\n";
-
     ASSERT_NEAR_VEC(this->output.data(), result, 9);
 }
 
@@ -311,7 +216,6 @@ TYPED_TEST(SegmentationEnergyTest, cubicRootTest) {
                                         -1.587401051968199};
 
     for(int i = 0; i < vals.size(); ++i) {
-//            LOG(INFO) << vals[i] << "\t" << results[i];
         ASSERT_NEAR(this->energy->cubicRoot(vals[i]), results[i], this->tolerance);
     }
 }

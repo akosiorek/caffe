@@ -132,8 +132,6 @@ void SegmentationLayer<Dtype>::Backward_cpu(
     caffe_mul<Dtype>(N_, bu, term2, term2);
     caffe_mul<Dtype>(N_, vertical, term2, term2);
     caffe_axpy<Dtype>(N_, 1, term1, term2);
-//
-//      caffe_mul<Dtype>(N_, vertical, term2, term2);
 
 // Bv * (H^-1 * lossGrad)
     energy->timesVerticalB_cpu(unitGrad, verticalGrad);
@@ -147,18 +145,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   } else {
     caffe_set<Dtype>(N_, 0, unitGrad);
   }
-
-//  LOG(ERROR) << "grad: " << vec2str(grad);
-//  LOG(ERROR) << "ind:  " << vec2str(indicator);
-//  LOG(ERROR) << "unit: " << vec2str(unit);
-//  LOG(ERROR) << "hori: " << vec2str(horizontal);
-//  LOG(ERROR) << "vert: " << vec2str(vertical);
-//
-//  LOG(ERROR) << "unitGrad: " << vec2str(unitGrad);
-//  LOG(ERROR) << "horiGrad: " << vec2str(horizontalGrad);
-//  LOG(ERROR) << "vertGrad: " << vec2str(verticalGrad);
 }
-
 
 INSTANTIATE_CLASS(SegmentationLayer);
 REGISTER_LAYER_CLASS(Segmentation);
