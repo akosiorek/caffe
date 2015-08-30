@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 
+#include "caffe/test/test_caffe_main.hpp"
 #include "caffe/vision_layers.hpp"
 
 #include "caffe/layers/segmentation_energy.h"
@@ -20,7 +21,7 @@ class SegmentationLayerTest : public ::testing::Test {
 	  segmentationParam->set_log_barrier_weight(1e-3);
 	  segmentationParam->set_smoothnes_eps(1e-3);
 	  segmentationParam->set_convex_param(1e1);
-	  segmentationParam->set_init_lipschitz_constant(1e4);
+	  segmentationParam->set_init_lipschitz_constant(1e3);
     segmentationParam->set_min_update_norm(1e-5);
 	
 	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
@@ -53,8 +54,8 @@ class SegmentationLayerTest : public ::testing::Test {
   std::unique_ptr<SegmentationLayer<Dtype>> layer;
 };
 
-//TYPED_TEST_CASE(SegmentationLayerTest, TestDtypes);
-TYPED_TEST_CASE(SegmentationLayerTest, ::testing::Types<double>);
+TYPED_TEST_CASE(SegmentationLayerTest, TestDtypes);
+//TYPED_TEST_CASE(SegmentationLayerTest, ::testing::Types<double>);
 
 TYPED_TEST(SegmentationLayerTest, TestSetUp) {
   typedef TypeParam Dtype;
