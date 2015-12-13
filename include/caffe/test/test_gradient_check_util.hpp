@@ -71,8 +71,8 @@ template <typename Dtype>
 void GradientChecker<Dtype>::CheckGradientSingle(Layer<Dtype>* layer,
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top,
     int check_bottom, int top_id, int top_data_id, bool element_wise) {
-  if (element_wise) {
-    CHECK_EQ(0, layer->blobs().size());
+  if (element_wise) {                                                             //element-wise layers shouldn't have any blobs inside the layer
+    CHECK_EQ(0, layer->blobs().size());                                           // and top_id ==0 and and top_data_id <= 0
     CHECK_LE(0, top_id);
     CHECK_LE(0, top_data_id);
     const int top_count = top[top_id]->count();
@@ -82,16 +82,16 @@ void GradientChecker<Dtype>::CheckGradientSingle(Layer<Dtype>* layer,
   }
   // First, figure out what blobs we need to check against.
   vector<Blob<Dtype>*> blobs_to_check;
-  vector<bool> propagate_down(bottom.size(), check_bottom < 0);
+  vector<bool> propagate_down(bottom.size(), check_bottom < 0);                   // if check bottom we have to propagate down all blobs
   for (int i = 0; i < layer->blobs().size(); ++i) {
-    blobs_to_check.push_back(layer->blobs()[i].get());
+    blobs_to_check.push_back(layer->blobs()[i].get());                            // check all inner blobs of the layer
   }
   if (check_bottom < 0) {
-    for (int i = 0; i < bottom.size(); ++i) {
+    for (int i = 0; i < bottom.size(); ++i) {                                     // if check_bottom < 0add all bottoms to check
       blobs_to_check.push_back(bottom[i]);
     }
-  } else {
-    CHECK_LT(check_bottom, bottom.size());
+  } else {                                                                        // if check_bottom >=0 add only this bottom to check
+    CHECK_LT(check_bottom, bottom.size());                                        // and propagate it down
     blobs_to_check.push_back(bottom[check_bottom]);
     propagate_down[check_bottom] = true;
   }
@@ -101,10 +101,10 @@ void GradientChecker<Dtype>::CheckGradientSingle(Layer<Dtype>* layer,
   // from the top blobs, whose gradients we may want to test individually).
   layer->Forward(bottom, top);
   // Get additional loss from the objective
-  GetObjAndGradient(*layer, top, top_id, top_data_id);
+  GetObjAndGradient(*layer, top, top_id, top_data_id);                            // TODO ??
   layer->Backward(top, propagate_down, bottom);
-  // Store computed gradients for all checked blobs
-  vector<shared_ptr<Blob<Dtype> > >
+  // Store computed gradients for all checked blobs                               // computed_gradient_blobs[i]->cpu_data() holds gradients from
+  vector<shared_ptr<Blob<Dtype> > >                                               // blobs_to_check[i]->cpu_diff
       computed_gradient_blobs(blobs_to_check.size());
   for (int blob_id = 0; blob_id < blobs_to_check.size(); ++blob_id) {
     Blob<Dtype>* current_blob = blobs_to_check[blob_id];
@@ -120,12 +120,12 @@ void GradientChecker<Dtype>::CheckGradientSingle(Layer<Dtype>* layer,
   // finite differencing.
   // LOG(ERROR) << "Checking " << blobs_to_check.size() << " blobs.";
   for (int blob_id = 0; blob_id < blobs_to_check.size(); ++blob_id) {
-    Blob<Dtype>* current_blob = blobs_to_check[blob_id];
+    Blob<Dtype>* current_blob = blobs_to_check[blob_id];                            // get one blob from blobs_to_check
     const Dtype* computed_gradients =
         computed_gradient_blobs[blob_id]->cpu_data();
     // LOG(ERROR) << "Blob " << blob_id << ": checking "
     //     << current_blob->count() << " parameters.";
-    for (int feat_id = 0; feat_id < current_blob->count(); ++feat_id) {
+    for (int feat_id = 0; feat_id < current_blob->count(); ++feat_id) {            // iterate over features of the current blob
       // For an element-wise layer, we only need to do finite differencing to
       // compute the derivative of top[top_id][top_data_id] w.r.t.
       // bottom[blob_id][i] only for i == top_data_id.  For any other
@@ -134,9 +134,9 @@ void GradientChecker<Dtype>::CheckGradientSingle(Layer<Dtype>* layer,
       Dtype estimated_gradient = 0;
       Dtype positive_objective = 0;
       Dtype negative_objective = 0;
-      if (!element_wise || (feat_id == top_data_id)) {
-        // Do finite differencing.
-        // Compute loss with stepsize_ added to input.
+      if (!element_wise || (feat_id == top_data_id)) {                            // this one has to be computed regardless of a layer being elementwise or not
+        // Do finite differencing.                                                // for element-wise it computes gradient only with feat_id == top_data_id
+        // Compute loss with stepsize_ added to input.                            // for non elementwise layers it computes all feat_ids for a given top_data_id
         current_blob->mutable_cpu_data()[feat_id] += stepsize_;
         Caffe::set_random_seed(seed_);
         layer->Forward(bottom, top);

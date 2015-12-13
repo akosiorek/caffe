@@ -280,7 +280,7 @@ layer {
 }
 layer {
   name: "Urelu6"
-  type: "TanH"
+  type: "Sigmoid"
   bottom: "Uconv6"
   top: "Uconv6"
 }
@@ -515,14 +515,12 @@ layer {
 
   segmentation_param {
 
-    init_data_weight: 1
+    init_data_weight: 100
     log_barrier_weight: 1e-3
     smoothnes_eps: 1e-3
 
-    minimization_iters: 1000
-    min_update_norm: 1e-3
-    convex_param: 1e0
-    init_lipschitz_constant: 8e1
+    min_update_norm: 0.5e-4
+    convex_param: 8e-3
 
     indicator_filler {
       type: "constant"

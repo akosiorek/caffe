@@ -35,21 +35,12 @@ public:
   void computeEnergyGradientPiecewise_cpu(const Dtype *indicator,
                                           Dtype *grad) const;
 
-  Dtype gradientIteration(Dtype *indicator, Dtype L) const;
-
   // Nesterov's accelerated method for composite objective functions
   void minimizeNCOBF_cpu(Dtype *indicator) const;
 
-  Dtype gradMapValue(Dtype L, const Dtype *x, const Dtype *y) const;
-
   bool argMinGradMap(Dtype L, const Dtype *y, Dtype *argMin) const;
 
-  bool argMinEstFun(Dtype L, Dtype ak, const Dtype *v, Dtype *argMin) const;
-
-  Dtype cubicRoot(Dtype x) const;
-
-  std::array <std::complex<Dtype>, 3> cubicRoots(Dtype a, Dtype b, Dtype c,
-                                                 Dtype d) const;
+  bool argMinEstFun(Dtype ak, const Dtype *v, Dtype *argMin) const;
 
   bool getValidRoots(int N, Dtype *a, Dtype *b, Dtype *c, Dtype *d,
                      Dtype *result) const;
@@ -90,10 +81,9 @@ public:
   int height_;
   int N_;
 
-  int minimizationIters_;
   Dtype logBarrierWeight_;
   Dtype smoothnesEps_;
-  Dtype minUpdateNorm_;
+  Dtype gradientNormTolerance_;
 
   shared_ptr<Blob<Dtype>> dataWeight_;
   const Blob<Dtype> *unitaryPotential_;
@@ -111,7 +101,6 @@ public:
   mutable Blob<Dtype> bufferNCOBF2_;
 
   Dtype convexParam_;
-  Dtype initLipschnitzConstant_;
 };
 
 }  // namespace caffe

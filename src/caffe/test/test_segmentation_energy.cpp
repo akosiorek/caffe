@@ -36,12 +36,11 @@ class SegmentationEnergyTest : public ::testing::Test {
     this->reshape(1, 1, 3, 3);
     this->setPotentials(0.5);
 
-	  segmentationParam.set_minimization_iters(1);
 	  segmentationParam.set_init_data_weight(1);
 	  segmentationParam.set_log_barrier_weight(1);
 	  segmentationParam.set_smoothnes_eps(1e-3);
-    segmentationParam.set_convex_param(1e1);
-    segmentationParam.set_init_lipschitz_constant(1e4);
+    segmentationParam.set_min_update_norm(0.1);
+    segmentationParam.set_convex_param(1e-3);
 
 	  // init data weight
 	  *dataWeight->mutable_cpu_data() = 1;
@@ -143,15 +142,16 @@ TYPED_TEST(SegmentationEnergyTest, TestEnergyGradient_CPU) {
 
 TYPED_TEST(SegmentationEnergyTest, TestEnergyMinimizationNCBOF_CPU) {
 
-    TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
-    TypeParam energyAfter = 0;
-    for(int i = 0; i < 10; ++i) {
-      this->energy->minimizeNCOBF_cpu(this->indicator.data());
+  TypeParam energyBefore = this->energy->energy_cpu(this->indicator.data());
+  this->energy->minimizeNCOBF_cpu(this->indicator.data());
 
-      energyAfter = this->energy->energy_cpu(this->indicator.data());
-      ASSERT_GT(energyBefore, energyAfter) << "failed at i = " << i;
-      energyBefore = energyAfter;
-    }
+  TypeParam energyAfter = this->energy->energy_cpu(this->indicator.data());
+
+  ASSERT_GT(energyBefore, energyAfter);
+
+  std::vector<TypeParam> gradient(this->indicator.size());
+  this->energy->computeEnergyGradient_cpu(this->indicator.data(), gradient.data());
+  ASSERT_LT(caffe_cpu_nrm2<TypeParam>(gradient.size(), gradient.data()), this->energy->gradientNormTolerance_);
 }
 
 TYPED_TEST(SegmentationEnergyTest, TestComputeSparseHessian_CPU) {
@@ -203,55 +203,57 @@ TYPED_TEST(SegmentationEnergyTest, TestInvertedHessianVec_CPU) {
 }
 
 
-TYPED_TEST(SegmentationEnergyTest, cubicRootTest) {
-
-    std::vector<TypeParam> vals = {1, -1, 2, -2, 3, -3, 4, -4};
-    std::vector<TypeParam> results = {   1.000000000000000,
-                                         -1.000000000000000,
-                                        1.259921049894873,
-                                        -1.259921049894873,
-                                        1.442249570307408,
-                                        -1.442249570307408,
-                                        1.587401051968199,
-                                        -1.587401051968199};
-
-    for(int i = 0; i < vals.size(); ++i) {
-        ASSERT_NEAR(this->energy->cubicRoot(vals[i]), results[i], this->tolerance);
-    }
-}
+//TYPED_TEST(SegmentationEnergyTest, cubicRootTest) {
+//
+//    std::vector<TypeParam> vals = {1, -1, 2, -2, 3, -3, 4, -4};
+//    std::vector<TypeParam> results = {   1.000000000000000,
+//                                         -1.000000000000000,
+//                                        1.259921049894873,
+//                                        -1.259921049894873,
+//                                        1.442249570307408,
+//                                        -1.442249570307408,
+//                                        1.587401051968199,
+//                                        -1.587401051968199};
+//
+//    for(int i = 0; i < vals.size(); ++i) {
+//        ASSERT_NEAR(this->energy->cubicRoot(vals[i]), results[i], this->tolerance);
+//    }
+//}
 
 TYPED_TEST(SegmentationEnergyTest, cubicRealRootsTest) {
 
-    using ComplexT = std::complex<TypeParam>;
-    using RootsT = std::array<ComplexT, 3>;
 
-    RootsT expected = {1, 0,   0.9309};
+  std::vector<TypeParam> a = {-1.0000};
+  std::vector<TypeParam> b = {1.9309};
+  std::vector<TypeParam> c = {-0.9309};
+  std::vector<TypeParam> d = {0};
+  std::vector<TypeParam> results = {0};
+  std::vector<TypeParam> expected = {0.9309};
 
-    auto roots = this->energy->cubicRoots(-1.0000, 1.9309, -0.9309, 0);
+  EXPECT_TRUE(this->energy->getValidRoots(1, a.data(), b.data(), c.data(),
+                                           d.data(), results.data()));
 
-    for(int i = 0; i < 3; ++i) {
-        LOG(INFO) << roots[i] << "\t" << expected[i];
-        ASSERT_NEAR(roots[i].real(), expected[i].real(), this->tolerance);
-        ASSERT_NEAR(roots[i].imag(), expected[i].imag(), this->tolerance);
-    }
+  for (int i = 0; i < expected.size(); ++i) {
+    ASSERT_NEAR(results[i], expected[i], this->tolerance);
+  }
 }
 
-TYPED_TEST(SegmentationEnergyTest, cubicImagRootsTest) {
-
-    using ComplexT = std::complex<TypeParam>;
-    using RootsT = std::array<ComplexT, 3>;
-
-    RootsT expected = { ComplexT(0.550068410523593, 0.000000000000000),
-                        ComplexT(0.224962395985682, +1.555925616061717),
-                        ComplexT(0.224962395985682, -1.555925616061717)};
-
-    auto roots = this->energy->cubicRoots(0.000735564, -0.000735559, 0.002, -0.001);
-
-    for(int i = 0; i < 3; ++i) {
-        LOG(INFO) << roots[i] << "\t" << expected[i];
-        ASSERT_NEAR(roots[i].real(), expected[i].real(), this->tolerance);
-        ASSERT_NEAR(roots[i].imag(), expected[i].imag(), this->tolerance);
-    }
-}
+//TYPED_TEST(SegmentationEnergyTest, cubicImagRootsTest) {
+//
+//    using ComplexT = std::complex<TypeParam>;
+//    using RootsT = std::array<ComplexT, 3>;
+//
+//    RootsT expected = { ComplexT(0.550068410523593, 0.000000000000000),
+//                        ComplexT(0.224962395985682, +1.555925616061717),
+//                        ComplexT(0.224962395985682, -1.555925616061717)};
+//
+//    auto roots = this->energy->cubicRoots(0.000735564, -0.000735559, 0.002, -0.001);
+//
+//    for(int i = 0; i < 3; ++i) {
+//        LOG(INFO) << roots[i] << "\t" << expected[i];
+//        ASSERT_NEAR(roots[i].real(), expected[i].real(), this->tolerance);
+//        ASSERT_NEAR(roots[i].imag(), expected[i].imag(), this->tolerance);
+//    }
+//}
 
 }  // namespace caffe

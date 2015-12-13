@@ -16,13 +16,11 @@ class SegmentationLayerTest : public ::testing::Test {
  	   bottomVec({&unitPotential, &horizontalPotential, &verticalPotential}),
  	   topVec({&topBlob}) {
 
-	  segmentationParam->set_minimization_iters(20);
-	  segmentationParam->set_init_data_weight(0.5);
+	  segmentationParam->set_init_data_weight(10);
 	  segmentationParam->set_log_barrier_weight(1e-3);
 	  segmentationParam->set_smoothnes_eps(1e-3);
-	  segmentationParam->set_convex_param(1e1);
-	  segmentationParam->set_init_lipschitz_constant(1e3);
-    segmentationParam->set_min_update_norm(1e-5);
+	  segmentationParam->set_convex_param(8e-3);
+    segmentationParam->set_min_update_norm(1e-3);
 	
 	  FillerParameter* filler = segmentationParam->mutable_indicator_filler();
 	  filler->set_type("gaussian");
@@ -54,8 +52,7 @@ class SegmentationLayerTest : public ::testing::Test {
   std::unique_ptr<SegmentationLayer<Dtype>> layer;
 };
 
-TYPED_TEST_CASE(SegmentationLayerTest, TestDtypes);
-//TYPED_TEST_CASE(SegmentationLayerTest, ::testing::Types<double>);
+TYPED_TEST_CASE(SegmentationLayerTest, ::testing::Types<double>);
 
 TYPED_TEST(SegmentationLayerTest, TestSetUp) {
   typedef TypeParam Dtype;
@@ -93,9 +90,7 @@ TYPED_TEST(SegmentationLayerTest, GradientTest) {
   typedef TypeParam Dtype;
 
   GradientChecker<Dtype> checker(1e-2, 1e-3);
-////  TODO Change to exhaustive
-//  checker.CheckGradientExhaustive(this->layer.get(), this->bottomVec, this->topVec);
-  checker.CheckGradientSingle(this->layer.get(), this->bottomVec, this->topVec, 0, -1, 0);
+  checker.CheckGradientExhaustive(this->layer.get(), this->bottomVec, this->topVec);
 }
 
 }  // namespace caffe

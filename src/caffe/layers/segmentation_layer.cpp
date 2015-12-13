@@ -98,6 +98,7 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   // data-weight update
   this->blobs_[0]->mutable_cpu_diff()[0] = caffe_cpu_dot<Dtype>(N_, unitGrad,
                                                                 unit);
+  LOG(ERROR) << "data weight update: " << this->blobs_[0]->mutable_cpu_diff()[0];
 
   //horizontal
   if (propagate_down[1]) {
@@ -145,6 +146,12 @@ void SegmentationLayer<Dtype>::Backward_cpu(
   } else {
     caffe_set<Dtype>(N_, 0, unitGrad);
   }
+
+//  Dtype mean = caffe_cpu_asum<Dtype>(N_, unitGrad) / N_;
+//  Dtype max = *std::max_element(unitGrad, unitGrad + N_);
+//  Dtype min = *std::min_element(unitGrad, unitGrad + N_);
+//  LOG(ERROR) << "mean grad: " << min << " " << max << " " << mean;
+//  LOG(ERROR) << "data weight:" << *this->blobs()[0]->cpu_data();
 }
 
 INSTANTIATE_CLASS(SegmentationLayer);

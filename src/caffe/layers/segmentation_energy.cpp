@@ -10,10 +10,8 @@ SegmentationEnergy<Dtype>::SegmentationEnergy(const SegmentationParameter& param
 
     this->logBarrierWeight_ = param.log_barrier_weight();
     this->smoothnesEps_ = param.smoothnes_eps();
-    this->minimizationIters_ = param.minimization_iters();
     this->convexParam_ = param.convex_param();
-    this->initLipschnitzConstant_ = param.init_lipschitz_constant();
-    this->minUpdateNorm_ = param.min_update_norm();
+    this->gradientNormTolerance_ = param.min_update_norm();
 }
 
 template<typename Dtype>
@@ -106,93 +104,39 @@ void SegmentationEnergy<Dtype>::computeEnergyGradient_cpu(const Dtype* indicator
     }
 }
 
-
-template <typename T> int sgn(T val) {
-    return (T(0) < val) - (val < T(0));
-}
-
-template<typename Dtype>
-Dtype SegmentationEnergy<Dtype>::cubicRoot(Dtype x) const {
-    return sgn(x) * std::cbrt(std::abs(x));
-}
-
-template<typename Dtype>
-std::array<std::complex<Dtype>, 3> SegmentationEnergy<Dtype>::cubicRoots(Dtype a, Dtype b, Dtype c, Dtype d) const {
-
-    using ComplexT = std::complex<Dtype>;
-    static const ComplexT i(0, 1);
-    std::array<ComplexT, 3> roots;
-
-    CHECK(a != 0);
-//    CHECK(d != 0);
-
-    b /= a;
-    c /= a;
-    d /= a;
-
-    Dtype q = (3 * c - b * b) / 9;
-    Dtype r = -(27 * d) + b * (9 * c - 2 * b * b);
-    r = r / 54;
-
-    Dtype disc = q * q * q + r * r;
-    Dtype term1 = b / 3;
-
-    // one root real, two are complex
-    if (disc > 0) {
-        Dtype s = cubicRoot(r + std::sqrt(disc));
-        Dtype t = cubicRoot(r - std::sqrt(disc));
-        roots[0] = -term1 + s + t;
-        term1 = term1 + (s + t) / 2;
-
-        roots[1] = roots[2] = -term1;
-        term1 = std::sqrt(3) * (-t + s) / 2;
-        roots[1] += i * term1;
-        roots[2] -= i * term1;
-
-        // The remaining options are all real
-    } else if (disc == 0) { // All roots real, at least two are equal.
-
-        Dtype r13 = cubicRoot(r);
-        roots[0] = -term1 + 2.0 * r13;
-        roots[1] = roots[2] = -(r13 + term1);
-    } else {// Only option left is that all roots are real and unequal (to get here, q < 0)
-        q = -q;
-        Dtype dum1 = q * q * q;
-        dum1 = std::acos(r / std::sqrt(dum1));
-        Dtype r13 = 2 * std::sqrt(q);
-        roots[0] = -term1 + r13 * std::cos(dum1 / 3);
-        roots[1] = -term1 + r13 * std::cos((dum1 + 2 * (Dtype)M_PI) / 3);
-        roots[2] = -term1 + r13 * std::cos((dum1 + 4 * (Dtype)M_PI) / 3);
-    }
-    return roots;
-}
-
 template<typename Dtype>
 bool SegmentationEnergy<Dtype>::getValidRoots(int N, Dtype* a, Dtype* b, Dtype* c, Dtype* d, Dtype* result) const {
 
-    for(int i = 0; i < N; ++i) {
-        auto roots = cubicRoots(a[i], b[i], c[i], d[i]);
-        bool set = false;
-        for(int j = 0; j < 3; ++j) {
-            const auto& root = roots[j];
-//            LOG(INFO) << root;
-            if(root.imag() == 0 && root.real() > 0 && root.real() < 1) {
-                result[i] = root.real();
-//                LOG(INFO) << root;
-                set = true;
-                break;
-            }
-        }
-        if(!set) {
-            LOG(FATAL) << "Only imaginary or invalid roots!\n"  \
-                   << "iter: " << i << "\n" \
-                   << "coeffs: " << a[i] << " " << b[i] << " " << c[i] << " " << d[i] << "\n" \
-                   << "roots: " << roots[0] << " ," << roots[1] << " ," << roots[2];
-            return false;
-        }
+  bool isValid = true;
+  for(int i = 0; i < N; ++i) {
 
+    LOG_IF(ERROR, a[i] == 0) << "a == 0";
+    LOG_IF(ERROR, b[i] == 0) << "b == 0";
+    LOG_IF(ERROR, c[i] == 0) << "c == 0";
+    LOG_IF(ERROR, d[i] == 0) << "d == 0";
+
+    Dtype bi = b[i] / a[i];
+    Dtype ci = c[i] / a[i];
+    Dtype di = d[i] / a[i];
+
+    Dtype q = -(3 * ci - bi * bi) / 9;
+    Dtype r = -(27 * di) + bi * (9 * ci - 2 * bi * bi);
+    r /= 54;
+
+    Dtype r13 = 2 * std::sqrt(q);
+
+    q = q * q * q;
+    q = std::acos(r / std::sqrt(q));
+    result[i] = -(bi / 3) + r13 * std::cos((q + 4 * (Dtype)M_PI) / 3);
+
+    isValid = isValid && (result[i] > 0) && (result[i] < 1);
+
+    if(!isValid) {
+      LOG_FIRST_N(ERROR, 1) << "iter: " << i << "\na = " << a[i] << "\nb = " << b[i] << "\nc = " <<
+                                                                   c[i] << "\nd = " << d[i] << "\nroot = " << result[i];
     }
-    return true;
+  }
+  return isValid;
 }
 
 template<typename Dtype>
@@ -225,7 +169,7 @@ bool SegmentationEnergy<Dtype>::argMinGradMap(Dtype L, const Dtype *y,
 };
 
 template<typename Dtype>
-bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* v, Dtype* argMin) const {
+bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype ak, const Dtype* v, Dtype* argMin) const {
 
     Dtype* a = bufferArgMinEstFuns_.mutable_cpu_data();
     Dtype* b = a + N_;
@@ -249,66 +193,6 @@ bool SegmentationEnergy<Dtype>::argMinEstFun(Dtype L, Dtype ak, const Dtype* v, 
   return getValidRoots(N_, a, b, c, d, argMin);
 }
 
-
-template<typename Dtype>
-Dtype SegmentationEnergy<Dtype>::gradMapValue(Dtype L, const Dtype* x, const Dtype* y) const {
-
-  Dtype energySmooth = 0;
-  Dtype energyData = 0;
-  Dtype energyLogBarrier = 0;
-  Dtype gradMap = 0;
-
-  Dtype* eHoriz = bufferEnergyGrad_.mutable_cpu_data();
-  Dtype* eVert = bufferEnergyGrad_.mutable_cpu_diff();
-
-
-  this->timesHorizontalB_cpu(x, eHoriz);
-  caffe_mul<Dtype>(N_, eHoriz, this->horizontalPotential_->cpu_data(), eHoriz);
-
-  this->timesVerticalB_cpu(x, eVert);
-  caffe_mul<Dtype>(N_, eVert, this->verticalPotential_->cpu_data(), eVert);
-
-
-
-
-  Dtype eps = this->smoothnesEps_ * this->smoothnesEps_;
-  for(int i = 0; i < N_; ++i) {
-    energySmooth += sqrt(eHoriz[i] * eHoriz[i] + eps);
-    energySmooth += sqrt(eVert[i] * eVert[i] + eps);
-    energyData += this->unitaryPotential_->cpu_data()[i] * y[i];
-    energyLogBarrier += log(y[i]) + log(1 - y[i]);
-  }
-  gradMap = energySmooth + this->dataWeight_->cpu_data()[0] * energyData - this->logBarrierWeight_ * energyLogBarrier;
-
-  computeEnergyGradientPiecewise_cpu(x, eHoriz);
-  caffe_copy<Dtype>(N_, x, eVert);
-  caffe_axpy<Dtype>(N_, -1, y, eVert);
-  gradMap += caffe_cpu_dot<Dtype>(N_, eHoriz, eVert) + 0.5 * L * caffe_cpu_dot<Dtype>(N_, eVert, eVert);
-
-  return gradMap;
-
-}
-
-template<typename Dtype>
-Dtype SegmentationEnergy<Dtype>::gradientIteration(Dtype* indicator, Dtype L) const {
-
-  Dtype* argMin = bufferNCOBF2_.mutable_cpu_data();
-
-  this->argMinGradMap(L, indicator, argMin);
-  Dtype gradMap = gradMapValue(L, indicator, argMin);
-  Dtype energy = energy_cpu(argMin);
-  L = L / 2;
-  while(energy > gradMap) {
-    L = L * 2;
-    this->argMinGradMap(L, indicator, argMin);
-    gradMap = gradMapValue(L, indicator, argMin);
-    energy = energy_cpu(argMin);
-  }
-
-  caffe_copy<Dtype>(N_, argMin, indicator);
-  return L;
-}
-
 template<typename Dtype>
 void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
 
@@ -321,8 +205,15 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
     Dtype* grad = bufferNCOBF2_.mutable_cpu_diff();
     Dtype* oldX = bufferMinimization_.mutable_cpu_data();
 
+
+    // compute L
+    Dtype maxHorizontal = *std::max_element(horizontalPotential_->cpu_data(), horizontalPotential_->cpu_data() + N_);
+    Dtype maxVertical = *std::max_element(verticalPotential_->cpu_data(), verticalPotential_->cpu_data() + N_);
+    Dtype maxPiecewise = std::max(maxHorizontal, maxVertical);
+    Dtype L = maxPiecewise * 8 / smoothnesEps_;
+    LOG(ERROR) << "max: " << maxPiecewise << " L: " << L;
+
     // init stuff
-    Dtype L = initLipschnitzConstant_;
     Dtype A = 0;
     Dtype ak = 0;
     caffe_copy<Dtype>(N_, x, v);
@@ -340,7 +231,12 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
 
     int iter = 0;
     LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(x);
-      while(iter < minimizationIters_) {
+
+  computeEnergyGradient_cpu(x, grad);
+  Dtype gradNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+  LOG(ERROR) << "iter: " << iter << " grad norm: " << gradNorm;
+//      while(iter < minimizationIters_) {
+  while(gradNorm > gradientNormTolerance_) {
       caffe_copy<Dtype>(N_, x, oldX);
 
       Dtype gradDiff = 0;
@@ -356,7 +252,9 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
         caffe_axpy<Dtype>(N_, ak / (A + ak), v, y);
 
         // grad at gradMapMinimizer
-        argMinGradMap(L, y, t);
+        if(!argMinGradMap(L, y, t)) {
+          LOG(FATAL) << "invalid argMinGradMap - inner loop\n L = " << L;
+        }
         computeEnergyGradient_cpu(t, grad);
 
         caffe_axpy<Dtype>(N_, -1, y, t);
@@ -366,16 +264,26 @@ void SegmentationEnergy<Dtype>::minimizeNCOBF_cpu(Dtype* x) const {
       }
 
       A += ak;
-      argMinGradMap(L, y, x);
+      if(!argMinGradMap(L, y, x)) {
+        LOG(FATAL) << "invalid argMinGradMap - outer loop";
+      }
       L /= gammaD;
 
+      if(iter % 50 == 0) {
+        computeEnergyGradient_cpu(x, grad);
+        gradNorm = caffe_cpu_nrm2<Dtype>(N_, grad);
+      }
+
       // compute new v
-      argMinEstFun(L, ak, x, v);
+      if(!argMinEstFun(ak, x, v)) {
+        LOG(FATAL) << "invalid argMinEstFun - outer loop";
+      }
       ++iter;
 //      LOG(INFO) << "Energy at iter #" << iter << " = " << energy_cpu(x);
     }
 
     LOG(INFO) << "Iter #" << iter << " Minimized energy = " << energy_cpu(x);
+  LOG(ERROR) << "iter: " << iter << " grad norm: " << gradNorm;
 }
 
 
@@ -517,7 +425,6 @@ void SegmentationEnergy<Dtype>::invHessianVector_cpu(const Dtype* indicator,
 
     const Map<const VectorType> vector(vec, N_, 1);
     Map<VectorType> result(iHv, N_, 1);
-
     result = solver.solve(vector);
 }
 
